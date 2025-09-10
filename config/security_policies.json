@@ -1,0 +1,39 @@
+{
+  "lock_policies": {
+    "disable_ssh": true,
+    "disable_network_interfaces": true,
+    "block_all_ports": true,
+    "disable_usb_storage": false,
+    "disable_bluetooth": true,
+    "disable_wifi": true,
+    "disable_ethernet": true
+  },
+  "unlock_policies": {
+    "restore_ssh": true,
+    "restore_network_interfaces": true,
+    "restore_all_ports": true,
+    "enable_usb_storage": true,
+    "enable_bluetooth": true,
+    "enable_wifi": true,
+    "enable_ethernet": true
+  },
+  "tamper_detection": {
+    "enabled": true,
+    "monitor_files": [
+      "/etc/lock-service/",
+      "/usr/local/bin/lock-service.py",
+      "/usr/local/bin/lock-cli.py"
+    ],
+    "monitor_processes": [
+      "lock-service"
+    ],
+    "auto_relock_on_tamper": true
+  },
+  "audit": {
+    "log_all_attempts": true,
+    "log_device_connections": true,
+    "log_admin_actions": true,
+    "log_tamper_attempts": true,
+    "retention_days": 90
+  }
+}

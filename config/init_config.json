@@ -1,0 +1,40 @@
+{
+  "service": {
+    "name": "lock-service",
+    "version": "1.0.0",
+    "log_level": "INFO",
+    "log_file": "/var/log/lock-service.log",
+    "pid_file": "/var/run/lock-service.pid",
+    "config_file": "/etc/lock-service/config.json"
+  },
+  "security": {
+    "max_pin_attempts": 3,
+    "lockout_duration_minutes": 15,
+    "recovery_code_expiry_hours": 48,
+    "challenge_timeout_seconds": 30,
+    "device_id_length": 12,
+    "pin_length": 4
+  },
+  "network": {
+    "usb_interface": "usb0",
+    "blocked_interfaces": ["eth0", "wlan0", "wifi0"],
+    "allowed_ports": [],
+    "blocked_ports": [22, 23, 80, 443, 8080, 8443]
+  },
+  "authentication": {
+    "enabled": true,
+    "require_physical_presence": true,
+    "admin_override_enabled": true,
+    "emergency_recovery_enabled": true
+  },
+  "logging": {
+    "verbose": true,
+    "include_device_info": true,
+    "external_logging": {
+      "enabled": false,
+      "elasticsearch_url": "",
+      "logstash_url": "",
+      "syslog_server": ""
+    }
+  }
+}

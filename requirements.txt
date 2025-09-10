@@ -1,0 +1,17 @@
+# Lock-Down Service Requirements
+# Core dependencies
+python-daemon>=3.0.0
+psutil>=5.8.0
+
+# Build dependencies
+setuptools>=60.0.0
+wheel>=0.37.0
+build>=0.8.0
+twine>=4.0.0
+
+# Optional dependencies for enhanced functionality
+# Uncomment if you want to use these features:
+# pyusb>=1.2.1          # For USB communication with Android devices
+# requests>=2.25.0       # For external logging services
+# elasticsearch>=7.0.0   # For Elasticsearch logging
+# cryptography>=3.4.0    # For enhanced cryptographic functions

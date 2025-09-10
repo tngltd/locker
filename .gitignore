@@ -1,0 +1,4 @@
+.venv/
+dist/
+lock-service.spec
+lock_service.egg-info/
