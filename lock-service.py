@@ -23,20 +23,26 @@ import argparse
 
 
 class LockService:
-    def __init__(self, config_path: str = "/etc/lock-service/config.json"):
+    def __init__(self, config_path: str = "/etc/lock-service/config.json", device_id_file: str = None, auth_file: str = None):
         self.config_path = config_path
         self.config = self.load_config()
         self.security_policies = self.load_security_policies()
         self.is_locked = False
-        self.device_id = self.get_or_create_device_id()
         self.pin_hash = None
         self.recovery_code = None
         self.failed_attempts = 0
         self.lockout_until = None
         self.running = True
         
-        # Setup logging
+        # Setup logging first (needed for error handling)
         self.setup_logging()
+        
+        # Set device ID file path (allow override for testing)
+        self.device_id_file = device_id_file or "/etc/lock-service/device_id"
+        self.device_id = self.get_or_create_device_id()
+        
+        # Set auth file path (allow override for testing)
+        self.auth_file = auth_file or "/etc/lock-service/auth_data.json"
         
         # Load existing authentication data
         self.load_auth_data()
@@ -105,28 +111,28 @@ class LockService:
     
     def get_or_create_device_id(self) -> str:
         """Get or create unique device ID"""
-        device_id_file = "/etc/lock-service/device_id"
         try:
-            if os.path.exists(device_id_file):
-                with open(device_id_file, 'r') as f:
+            if os.path.exists(self.device_id_file):
+                with open(self.device_id_file, 'r') as f:
                     return f.read().strip()
             else:
                 # Create new device ID
                 device_id = str(uuid.uuid4()).replace('-', '')[:12].upper()
-                os.makedirs(os.path.dirname(device_id_file), exist_ok=True)
-                with open(device_id_file, 'w') as f:
+                os.makedirs(os.path.dirname(self.device_id_file), exist_ok=True)
+                with open(self.device_id_file, 'w') as f:
                     f.write(device_id)
                 return device_id
         except Exception as e:
-            self.logger.error(f"Error managing device ID: {e}")
-            return "DEFAULT123"
+            if hasattr(self, 'logger'):
+                self.logger.error(f"Error managing device ID: {e}")
+            # Fallback to generating a temporary ID
+            return str(uuid.uuid4()).replace('-', '')[:12].upper()
     
     def load_auth_data(self):
         """Load authentication data from secure storage"""
-        auth_file = "/etc/lock-service/auth_data.json"
         try:
-            if os.path.exists(auth_file):
-                with open(auth_file, 'r') as f:
+            if os.path.exists(self.auth_file):
+                with open(self.auth_file, 'r') as f:
                     auth_data = json.load(f)
                     self.pin_hash = auth_data.get('pin_hash')
                     self.recovery_code = auth_data.get('recovery_code')
@@ -138,19 +144,18 @@ class LockService:
     
     def save_auth_data(self):
         """Save authentication data to secure storage"""
-        auth_file = "/etc/lock-service/auth_data.json"
         try:
-            os.makedirs(os.path.dirname(auth_file), exist_ok=True)
+            os.makedirs(os.path.dirname(self.auth_file), exist_ok=True)
             auth_data = {
                 'pin_hash': self.pin_hash,
                 'recovery_code': self.recovery_code,
                 'failed_attempts': self.failed_attempts,
                 'lockout_until': self.lockout_until.isoformat() if self.lockout_until else None
             }
-            with open(auth_file, 'w') as f:
+            with open(self.auth_file, 'w') as f:
                 json.dump(auth_data, f)
             # Set secure permissions
-            os.chmod(auth_file, 0o600)
+            os.chmod(self.auth_file, 0o600)
         except Exception as e:
             self.logger.error(f"Error saving auth data: {e}")
     
@@ -313,6 +318,83 @@ class LockService:
         self.logger.info("Successful authentication")
         return True
     
+    def detect_android_device_via_usb(self) -> bool:
+        """Detect Android device via USB (lsusb)"""
+        try:
+            result = subprocess.run(
+                ['lsusb'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            
+            if result.returncode != 0:
+                return False
+            
+            # Look for Android device vendor IDs
+            android_vendors = ['18d1', '04e8', '0bb4', '12d1', '0e79', '24e3']
+            # Google, Samsung, HTC, Huawei, Archos, OnePlus
+            
+            for line in result.stdout.split('\n'):
+                line_lower = line.lower()
+                for vendor in android_vendors:
+                    if vendor in line_lower:
+                        self.logger.debug(f"Android device detected via USB: {line.strip()}")
+                        return True
+            
+            return False
+        except FileNotFoundError:
+            self.logger.debug("lsusb not found, skipping USB device detection")
+            return False
+        except Exception as e:
+            self.logger.debug(f"Error detecting Android device via USB: {e}")
+            return False
+    
+    def detect_android_device_via_adb(self) -> bool:
+        """Detect Android device via ADB (for emulators/testing)"""
+        try:
+            # Check if ADB is available
+            result = subprocess.run(
+                ['adb', 'devices'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            
+            if result.returncode != 0:
+                return False
+            
+            # Parse output - look for devices in "device" state
+            lines = result.stdout.strip().split('\n')
+            for line in lines[1:]:  # Skip first line "List of devices attached"
+                if line.strip() and 'device' in line and 'offline' not in line:
+                    device_id = line.split()[0]
+                    self.logger.debug(f"Android device detected via ADB: {device_id}")
+                    return True
+            
+            return False
+        except FileNotFoundError:
+            self.logger.debug("ADB not found, skipping ADB device detection")
+            return False
+        except subprocess.TimeoutExpired:
+            self.logger.warning("ADB command timed out")
+            return False
+        except Exception as e:
+            self.logger.debug(f"Error detecting Android device via ADB: {e}")
+            return False
+    
+    def detect_android_device(self) -> bool:
+        """Detect Android device via USB or ADB"""
+        # Try USB first (for real devices)
+        if self.detect_android_device_via_usb():
+            return True
+        
+        # Fall back to ADB (for emulators/testing)
+        if self.detect_android_device_via_adb():
+            return True
+        
+        return False
+    
     def signal_handler(self, signum, frame):
         """Handle shutdown signals"""
         self.logger.info(f"Received signal {signum}, shutting down...")
@@ -326,11 +408,42 @@ class LockService:
         if self.pin_hash and not self.is_locked:
             self.lock_system()
         
+        device_connected = False
+        check_interval = self.config.get('monitoring', {}).get('check_interval_seconds', 5)
+        
         while self.running:
             try:
-                # Monitor for USB connections and handle authentication
-                # In a real implementation, this would involve USB communication
-                time.sleep(1)
+                # Monitor for Android device connections
+                current_device_state = self.detect_android_device()
+                
+                if current_device_state and not device_connected:
+                    # Device just connected
+                    device_connected = True
+                    self.logger.info("Android device detected - device connected")
+                    
+                    if self.is_locked:
+                        self.logger.info("System is locked. Waiting for authentication...")
+                        # In real implementation, would initiate authentication here
+                    else:
+                        self.logger.info("System is unlocked. Device connection logged.")
+                
+                elif not current_device_state and device_connected:
+                    # Device just disconnected
+                    device_connected = False
+                    self.logger.info("Android device disconnected")
+                    
+                    # Lock system if PIN is configured
+                    if self.pin_hash and not self.is_locked:
+                        self.logger.info("Locking system due to device disconnection")
+                        self.lock_system()
+                
+                elif current_device_state and device_connected and self.is_locked:
+                    # Device is connected but system is locked
+                    # This is where authentication would be handled
+                    # For now, just log that we're waiting
+                    pass
+                
+                time.sleep(check_interval)
                 
             except KeyboardInterrupt:
                 break
