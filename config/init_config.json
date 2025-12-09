@@ -36,5 +36,8 @@
       "logstash_url": "",
       "syslog_server": ""
     }
+  },
+  "monitoring": {
+    "check_interval_seconds": 5
   }
 }
