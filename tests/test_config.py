@@ -11,6 +11,7 @@ import shutil
 from unittest.mock import patch, MagicMock
 import sys
 import importlib.util
+import logging
 
 # Import lock-service module
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -209,7 +210,8 @@ class TestConfigurationSystem(unittest.TestCase):
         
         self.assertIn('Invalid JSON', str(context.exception))
 
-    def test_load_config_file_not_found_uses_default(self):
+    @patch('logging.FileHandler')
+    def test_load_config_file_not_found_uses_default(self, mock_file_handler):
         """Test that missing config file uses default"""
         # Don't create config file
         # This test may fail if default config doesn't exist, which is acceptable
@@ -221,14 +223,17 @@ class TestConfigurationSystem(unittest.TestCase):
         if not os.path.exists(default_config_path):
             self.skipTest("Default config file not found in test environment")
         
+        # Mock FileHandler to avoid permission issues
+        mock_file_handler.return_value = MagicMock()
+        
         try:
             service = LockService('/nonexistent/config.json', 
                                 device_id_file=self.device_id_file, 
                                 auth_file=self.auth_file)
             # If we get here, default config was loaded
             self.assertIsNotNone(service.config)
-        except (FileNotFoundError, ValueError, PermissionError) as e:
-            # Default config might not exist, validation might fail, or log file permissions issue
+        except (FileNotFoundError, ValueError) as e:
+            # Default config might not exist or validation might fail
             # This is acceptable - the important thing is that load_config handles the error
             self.skipTest(f"Could not test default config loading: {e}")
 
