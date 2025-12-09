@@ -12,6 +12,8 @@ import getpass
 import hashlib
 import hmac
 import subprocess
+import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -281,7 +283,11 @@ class LockCLI:
     
     def logs(self, lines: int = 50):
         """Show service logs"""
-        log_file = "/var/log/lock-service.log"
+        try:
+            config = self.load_config()
+            log_file = config.get('service', {}).get('log_file', '/var/log/lock-service.log')
+        except:
+            log_file = "/var/log/lock-service.log"
         
         if not os.path.exists(log_file):
             print("No log file found.")
