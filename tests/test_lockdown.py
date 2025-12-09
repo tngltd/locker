@@ -118,9 +118,18 @@ class TestSystemLockdown(unittest.TestCase):
         service.lock_system()
         
         # Verify systemctl stop and disable were called
-        calls = [str(call) for call in mock_subprocess.call_args_list]
-        self.assertTrue(any('systemctl' in str(c) and 'stop' in str(c) and 'ssh' in str(c) for c in calls))
-        self.assertTrue(any('systemctl' in str(c) and 'disable' in str(c) and 'ssh' in str(c) for c in calls))
+        systemctl_calls = [c for c in mock_subprocess.call_args_list if len(c[0]) > 0 and 'systemctl' in str(c[0][0])]
+        stop_found = False
+        disable_found = False
+        for call_args in systemctl_calls:
+            args = call_args[0][0] if isinstance(call_args[0], (list, tuple)) else call_args[0]
+            if isinstance(args, list):
+                if 'stop' in args and 'ssh' in args:
+                    stop_found = True
+                if 'disable' in args and 'ssh' in args:
+                    disable_found = True
+        self.assertTrue(stop_found, "systemctl stop ssh not called")
+        self.assertTrue(disable_found, "systemctl disable ssh not called")
         self.assertTrue(service.is_locked)
 
     @patch('subprocess.run')
@@ -132,9 +141,16 @@ class TestSystemLockdown(unittest.TestCase):
         service.lock_system()
         
         # Verify ip link set down was called for each interface
-        calls = [str(call) for call in mock_subprocess.call_args_list]
+        ip_calls = [c for c in mock_subprocess.call_args_list if len(c[0]) > 0 and 'ip' in str(c[0][0])]
         for interface in self.default_config['network']['blocked_interfaces']:
-            self.assertTrue(any(f'ip link set {interface} down' in str(c) for c in calls))
+            found = False
+            for call_args in ip_calls:
+                args = call_args[0][0] if isinstance(call_args[0], (list, tuple)) else call_args[0]
+                if isinstance(args, list) and len(args) >= 4:
+                    if args[0] == 'ip' and args[1] == 'link' and args[2] == 'set' and args[3] == interface and 'down' in args:
+                        found = True
+                        break
+            self.assertTrue(found, f"ip link set {interface} down not called")
 
     @patch('subprocess.run')
     def test_lock_system_blocks_ports(self, mock_subprocess):
@@ -145,8 +161,14 @@ class TestSystemLockdown(unittest.TestCase):
         service.lock_system()
         
         # Verify iptables DROP rules were added
-        calls = [str(call) for call in mock_subprocess.call_args_list]
-        self.assertTrue(any('iptables' in str(c) and 'DROP' in str(c) for c in calls))
+        iptables_calls = [c for c in mock_subprocess.call_args_list if len(c[0]) > 0 and 'iptables' in str(c[0][0])]
+        drop_found = False
+        for call_args in iptables_calls:
+            args = call_args[0][0] if isinstance(call_args[0], (list, tuple)) else call_args[0]
+            if isinstance(args, list) and '-j' in args and 'DROP' in args:
+                drop_found = True
+                break
+        self.assertTrue(drop_found, "iptables DROP rule not added")
 
     @patch('subprocess.run')
     def test_lock_system_idempotent(self, mock_subprocess):
@@ -169,9 +191,17 @@ class TestSystemLockdown(unittest.TestCase):
         service.unlock_system()
         
         # Verify ip link set up was called for each interface
-        calls = [str(call) for call in mock_subprocess.call_args_list]
+        # Check the actual call arguments
+        ip_calls = [c for c in mock_subprocess.call_args_list if len(c[0]) > 0 and 'ip' in c[0][0]]
         for interface in self.default_config['network']['blocked_interfaces']:
-            self.assertTrue(any(f'ip link set {interface} up' in str(c) for c in calls))
+            found = False
+            for call_args in ip_calls:
+                args = call_args[0][0] if isinstance(call_args[0], (list, tuple)) else call_args[0]
+                if isinstance(args, list) and len(args) >= 4:
+                    if args[0] == 'ip' and args[1] == 'link' and args[2] == 'set' and args[3] == interface and 'up' in args:
+                        found = True
+                        break
+            self.assertTrue(found, f"ip link set {interface} up not called")
         self.assertFalse(service.is_locked)
 
     @patch('subprocess.run')
@@ -196,9 +226,18 @@ class TestSystemLockdown(unittest.TestCase):
         service.unlock_system()
         
         # Verify iptables -F and -X were called
-        calls = [str(call) for call in mock_subprocess.call_args_list]
-        self.assertTrue(any('iptables' in str(c) and '-F' in str(c) for c in calls))
-        self.assertTrue(any('iptables' in str(c) and '-X' in str(c) for c in calls))
+        iptables_calls = [c for c in mock_subprocess.call_args_list if len(c[0]) > 0 and 'iptables' in str(c[0][0])]
+        flush_found = False
+        delete_found = False
+        for call_args in iptables_calls:
+            args = call_args[0][0] if isinstance(call_args[0], (list, tuple)) else call_args[0]
+            if isinstance(args, list):
+                if '-F' in args:
+                    flush_found = True
+                if '-X' in args:
+                    delete_found = True
+        self.assertTrue(flush_found, "iptables -F not called")
+        self.assertTrue(delete_found, "iptables -X not called")
 
     @patch('subprocess.run')
     def test_unlock_system_resets_auth_state(self, mock_subprocess):
