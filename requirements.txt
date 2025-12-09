@@ -9,6 +9,10 @@ wheel>=0.37.0
 build>=0.8.0
 twine>=4.0.0
 
+# Testing dependencies
+pytest>=7.0.0
+pytest-cov>=4.0.0
+
 # Optional dependencies for enhanced functionality
 # Uncomment if you want to use these features:
 # pyusb>=1.2.1          # For USB communication with Android devices
