@@ -55,15 +55,46 @@ class LockService:
         self.logger.info(f"System OS: {self.get_system_info()}")
     
     def load_config(self) -> Dict:
-        """Load configuration from JSON file"""
+        """Load and validate configuration from JSON file"""
         try:
             with open(self.config_path, 'r') as f:
-                return json.load(f)
+                config = json.load(f)
         except FileNotFoundError:
             # Use default config if file doesn't exist
             default_config_path = Path(__file__).parent / "config" / "init_config.json"
             with open(default_config_path, 'r') as f:
-                return json.load(f)
+                config = json.load(f)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in config file: {e}")
+        
+        # Validate required sections
+        self.validate_config(config)
+        return config
+    
+    def validate_config(self, config: Dict):
+        """Validate configuration structure"""
+        required_sections = ['service', 'security', 'network', 'authentication', 'monitoring']
+        for section in required_sections:
+            if section not in config:
+                raise ValueError(f"Missing required config section: {section}")
+        
+        # Validate service section
+        if 'log_level' not in config['service']:
+            raise ValueError("Missing 'log_level' in service config")
+        
+        # Validate security section
+        required_security = ['max_pin_attempts', 'lockout_duration_minutes']
+        for key in required_security:
+            if key not in config['security']:
+                raise ValueError(f"Missing '{key}' in security config")
+        
+        # Validate network section
+        if 'blocked_interfaces' not in config['network']:
+            raise ValueError("Missing 'blocked_interfaces' in network config")
+        
+        # Validate monitoring section
+        if 'check_interval_seconds' not in config['monitoring']:
+            raise ValueError("Missing 'check_interval_seconds' in monitoring config")
     
     def load_security_policies(self) -> Dict:
         """Load security policies from JSON file"""
