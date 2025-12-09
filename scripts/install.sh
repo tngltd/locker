@@ -73,34 +73,12 @@ chmod 755 "$CONFIG_DIR"
 
 # Create systemd service file
 echo "Creating systemd service..."
-cat > "$SYSTEMD_DIR/lock-service.service" << EOF
-[Unit]
-Description=Lock-Down Service
-After=network.target
-Wants=network.target
-
-[Service]
-Type=simple
-User=root
-Group=root
-ExecStart=$INSTALL_DIR/lock-service.py --config $CONFIG_DIR/config.json --daemon
-ExecReload=/bin/kill -HUP \$MAINPID
-Restart=always
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=lock-service
-
-# Security settings
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=$CONFIG_DIR $LOG_DIR $RUN_DIR
-
-[Install]
-WantedBy=multi-user.target
-EOF
+# Use sed to replace paths in the template
+sed -e "s|/usr/local/bin|$INSTALL_DIR|g" \
+    -e "s|/etc/lock-service|$CONFIG_DIR|g" \
+    -e "s|/var/log|$LOG_DIR|g" \
+    -e "s|/var/run|$RUN_DIR|g" \
+    "$(dirname "$0")/../config/lock-service.service" > "$SYSTEMD_DIR/lock-service.service"
 
 # Reload systemd and enable service
 echo "Configuring systemd service..."
