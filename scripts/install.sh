@@ -39,7 +39,9 @@ fi
 
 # Check Python version
 PYTHON_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
-if [ "$(echo "$PYTHON_VERSION < 3.6" | bc -l)" -eq 1 ]; then
+PYTHON_MAJOR=$(echo "$PYTHON_VERSION" | cut -d. -f1)
+PYTHON_MINOR=$(echo "$PYTHON_VERSION" | cut -d. -f2)
+if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 6 ]); then
     echo -e "${RED}Error: Python 3.6 or higher is required (found $PYTHON_VERSION)${NC}"
     exit 1
 fi
@@ -107,8 +109,8 @@ systemctl enable lock-service
 
 # Install Python dependencies
 echo "Installing Python dependencies..."
-python3 -m pip install --upgrade pip
-python3 -m pip install python-daemon
+python3 -m pip install --upgrade pip --quiet
+python3 -m pip install -r requirements.txt --quiet
 
 # Create log rotation configuration
 echo "Configuring log rotation..."
