@@ -210,7 +210,7 @@ class TestConfigurationSystem(unittest.TestCase):
         
         self.assertIn('Invalid JSON', str(context.exception))
 
-    @patch('logging.FileHandler')
+    @patch('lock_service.logging.FileHandler')
     def test_load_config_file_not_found_uses_default(self, mock_file_handler):
         """Test that missing config file uses default"""
         # Don't create config file
