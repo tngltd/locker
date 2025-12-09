@@ -1,0 +1,27 @@
+[Unit]
+Description=Lock-Down Service
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/local/bin/lock-service.py --config /etc/lock-service/config.json --daemon
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lock-service
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/etc/lock-service /var/log /var/run
+
+[Install]
+WantedBy=multi-user.target
+
