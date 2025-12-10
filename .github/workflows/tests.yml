@@ -26,7 +26,7 @@ jobs:
     
     - name: Run tests with coverage
       run: |
-        coverage run --source=. -m unittest discover -s tests -p 'test_*.py' -v
+        coverage run -m unittest discover -s tests -p 'test_*.py' -v
         coverage xml
         coverage json
         coverage report
@@ -45,5 +45,4 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         MINIMUM_GREEN: 60
         MINIMUM_ORANGE: 40
-        COVERAGE_JSON_PATH: coverage.json
 

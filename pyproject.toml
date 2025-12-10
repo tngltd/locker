@@ -75,3 +75,14 @@ zip-safe = false
     "docs/admin_guide.md",
 ]
 
+[tool.coverage.run]
+relative_files = true
+source = ["."]
+omit = ["tests/*", "venv/*", "setup.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+]
+
