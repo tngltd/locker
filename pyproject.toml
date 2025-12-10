@@ -1,0 +1,77 @@
+[build-system]
+requires = ["setuptools>=60.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lock-service"
+version = "1.0.0"
+description = "A security service for Ubuntu systems to lock down devices when lost/stolen"
+readme = "README.md"
+requires-python = ">=3.6"
+license = {text = "MIT"}
+authors = [
+    {name = "Lock Service Team", email = "admin@example.com"}
+]
+keywords = ["security", "lock", "ubuntu", "android", "authentication"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: System Administrators",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.6",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Topic :: Security",
+    "Topic :: System :: Systems Administration",
+]
+dependencies = [
+    "python-daemon>=3.0.0",
+    "psutil>=5.8.0",
+    "pyudev>=0.24.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "coverage>=7.0.0",
+]
+
+[project.scripts]
+lock-service = "lock_service:main"
+lock-cli = "lock_cli:main"
+
+[project.urls]
+Homepage = "https://github.com/example/lock-service"
+Documentation = "https://github.com/example/lock-service/wiki"
+Repository = "https://github.com/example/lock-service"
+"Bug Reports" = "https://github.com/example/lock-service/issues"
+
+[tool.setuptools]
+packages = ["lock_service", "lock_cli"]
+include-package-data = true
+zip-safe = false
+
+[tool.setuptools.package-data]
+"*" = ["*.json", "*.md", "*.sh"]
+
+[tool.setuptools.data-files]
+"/etc/lock-service" = [
+    "config/init_config.json",
+    "config/security_policies.json",
+]
+"/usr/local/bin" = [
+    "lock-service.py",
+    "lock-cli.py",
+]
+"/usr/local/share/lock-service/scripts" = [
+    "scripts/install.sh",
+    "scripts/setup.sh",
+]
+"/usr/local/share/lock-service/docs" = [
+    "docs/user_manual.md",
+    "docs/admin_guide.md",
+]
+
