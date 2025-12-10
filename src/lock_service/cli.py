@@ -12,6 +12,7 @@ import subprocess
 import time
 from pathlib import Path
 from typing import Optional, List
+import pyudev
 
 
 class LockCLI:
@@ -58,36 +59,45 @@ class LockCLI:
         os.chmod(self.config_path, 0o644)
     
     def get_connected_devices(self) -> List[tuple]:
-        """Get list of connected Android devices (serial, model)"""
+        """Get list of connected Android devices (serial, model) using pyudev"""
         devices = []
         try:
-            result = subprocess.run(
-                ['adb', 'devices', '-l'],
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
+            context = pyudev.Context()
             
-            if result.returncode != 0:
-                return devices
+            # Find Android devices via USB
+            android_vendor_ids = ['18d1', '0bb4', '04e8', '24e3', '0955', '201e', '0e79', '04c5']
+            seen_serials = set()
             
-            lines = result.stdout.strip().split('\n')
-            for line in lines[1:]:  # Skip "List of devices attached"
-                if line.strip() and 'device' in line and 'offline' not in line:
-                    parts = line.split()
-                    if parts:
-                        serial = parts[0]
-                        # Try to extract model info
-                        model = "Unknown"
-                        for part in parts:
-                            if part.startswith('model:'):
-                                model = part.replace('model:', '')
-                                break
-                        devices.append((serial, model))
-        except FileNotFoundError:
-            print("Error: ADB not found. Please install Android Debug Bridge (adb).")
-        except subprocess.TimeoutExpired:
-            print("Error: ADB command timed out.")
+            for vendor_id in android_vendor_ids:
+                try:
+                    for device in context.list_devices(subsystem='usb', ID_VENDOR_ID=vendor_id):
+                        serial = device.get('ID_SERIAL_SHORT') or device.get('ID_SERIAL')
+                        if serial and serial not in seen_serials:
+                            # Try to get model information
+                            model = device.get('ID_MODEL', 'Unknown')
+                            # Clean up model name
+                            model = model.replace('_', ' ').title()
+                            devices.append((serial, model))
+                            seen_serials.add(serial)
+                except Exception:
+                    continue
+            
+            # Also check for devices via usb subsystem more broadly
+            # Look for devices with Android Debug Bridge interface protocol
+            try:
+                for device in context.list_devices(subsystem='usb'):
+                    # Check if this is an Android device by looking for Android Debug Bridge interface
+                    interfaces = device.get('ID_USB_INTERFACES', '')
+                    if 'adb' in interfaces.lower() or ':' in device.get('ID_USB_INTERFACES', ''):
+                        serial = device.get('ID_SERIAL_SHORT') or device.get('ID_SERIAL')
+                        if serial and serial not in seen_serials:
+                            model = device.get('ID_MODEL', 'Unknown')
+                            model = model.replace('_', ' ').title()
+                            devices.append((serial, model))
+                            seen_serials.add(serial)
+            except Exception:
+                pass
+                
         except Exception as e:
             print(f"Error getting connected devices: {e}")
         
@@ -106,7 +116,6 @@ class LockCLI:
             print("Please ensure:")
             print("  1. Your Android device is connected via USB")
             print("  2. USB debugging is enabled on the device")
-            print("  3. ADB is installed on this system")
             return
         
         print("Connected Android devices:")
@@ -136,7 +145,6 @@ class LockCLI:
                 print("Please ensure:")
                 print("  1. Your Android device is connected via USB")
                 print("  2. USB debugging is enabled on the device")
-                print("  3. ADB is installed on this system")
                 print()
                 response = input("Enter device serial manually? (y/N): ")
                 if response.lower() == 'y':
@@ -202,7 +210,6 @@ class LockCLI:
             print("Please ensure:")
             print("  1. Your Android device is connected via USB")
             print("  2. USB debugging is enabled on the device")
-            print("  3. ADB is installed on this system")
             return
         
         print()

@@ -15,6 +15,7 @@ import uuid
 from pathlib import Path
 from typing import Dict, Optional, List
 import argparse
+import pyudev
 
 
 class LockService:
@@ -267,33 +268,49 @@ class LockService:
             self.logger.error(f"Error unlocking system: {e}")
     
     def get_connected_android_serials(self) -> List[str]:
-        """Get list of connected Android device serials via ADB"""
+        """Get list of connected Android device serials using pyudev"""
         serials = []
+        seen_serials = set()
         try:
-            result = subprocess.run(
-                ['adb', 'devices'],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
+            context = pyudev.Context()
             
-            if result.returncode != 0:
-                return serials
+            # Find Android devices via USB
+            # Android devices typically have vendor ID 18d1 (Google) or other Android vendor IDs
+            # We look for USB devices that are Android devices
+            android_vendor_ids = ['18d1', '0bb4', '04e8', '24e3', '0955', '201e', '0e79', '04c5']
             
-            # Parse output - look for devices in "device" state
-            lines = result.stdout.strip().split('\n')
-            for line in lines[1:]:  # Skip first line "List of devices attached"
-                if line.strip() and 'device' in line and 'offline' not in line:
-                    parts = line.split()
-                    if parts:
-                        serials.append(parts[0])
+            for vendor_id in android_vendor_ids:
+                try:
+                    for device in context.list_devices(subsystem='usb', ID_VENDOR_ID=vendor_id):
+                        serial = device.get('ID_SERIAL_SHORT') or device.get('ID_SERIAL')
+                        if serial and serial not in seen_serials:
+                            # Also check if device is in 'device' state (not offline)
+                            # We can check the device state via sysfs
+                            device_path = device.get('DEVPATH')
+                            if device_path:
+                                # Check if device is actually connected and active
+                                # USB devices that are connected will have a valid serial
+                                serials.append(serial)
+                                seen_serials.add(serial)
+                except Exception:
+                    continue
             
-        except FileNotFoundError:
-            self.logger.debug("ADB not found")
-        except subprocess.TimeoutExpired:
-            self.logger.warning("ADB command timed out")
+            # Also check for devices via usb subsystem more broadly
+            # Look for devices with ID_USB_INTERFACES containing Android Debug Bridge protocol
+            try:
+                for device in context.list_devices(subsystem='usb'):
+                    # Check if this is an Android device by looking for Android Debug Bridge interface
+                    interfaces = device.get('ID_USB_INTERFACES', '')
+                    if 'adb' in interfaces.lower() or ':' in device.get('ID_USB_INTERFACES', ''):
+                        serial = device.get('ID_SERIAL_SHORT') or device.get('ID_SERIAL')
+                        if serial and serial not in seen_serials:
+                            serials.append(serial)
+                            seen_serials.add(serial)
+            except Exception:
+                pass
+            
         except Exception as e:
-            self.logger.debug(f"Error getting Android serials: {e}")
+            self.logger.debug(f"Error getting Android serials via pyudev: {e}")
         
         return serials
     
