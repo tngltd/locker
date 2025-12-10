@@ -30,6 +30,9 @@ REMOTE_HOST="192.168.155.129"
 REMOTE_USER="user"
 REMOTE_PASS="user"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VM_PATH="/Users/shaked/Virtual Machines.localized/Ubuntu 64-bit Arm Server 24.04.3.vmwarevm/Ubuntu 64-bit Arm Server 24.04.3.vmx"
+SNAPSHOT_NAME="with-ssh"
+VMRUN="/Applications/VMware Fusion.app/Contents/Public/vmrun"
 
 # SSH command (using SSH keys, no password needed)
 SSH_CMD() {
@@ -41,6 +44,72 @@ SCP_CMD() {
 }
 
 log_info "Testing package installation on remote Ubuntu machine ($REMOTE_USER@$REMOTE_HOST)..."
+
+# Step 0: Revert VM to snapshot
+if [ -f "$VMRUN" ] && [ -f "$VM_PATH" ]; then
+    log_info "Step 0: Reverting VM to snapshot '$SNAPSHOT_NAME'..."
+    
+    # Check VM state and stop if running
+    VM_STATE=$("$VMRUN" list | grep "$VM_PATH" || echo "")
+    if echo "$VM_STATE" | grep -q "running"; then
+        log_info "VM is running, stopping it..."
+        "$VMRUN" stop "$VM_PATH" hard || {
+            log_warning "Failed to stop VM, trying soft stop..."
+            "$VMRUN" stop "$VM_PATH" soft || {
+                log_error "Failed to stop VM"
+                exit 1
+            }
+        }
+        sleep 2
+    elif echo "$VM_STATE" | grep -q "suspended"; then
+        log_info "VM is suspended, stopping it..."
+        "$VMRUN" stop "$VM_PATH" hard || {
+            log_error "Failed to stop suspended VM"
+            exit 1
+        }
+        sleep 2
+    fi
+    
+    # Revert to snapshot
+    if ! "$VMRUN" revertToSnapshot "$VM_PATH" "$SNAPSHOT_NAME"; then
+        log_error "Failed to revert to snapshot '$SNAPSHOT_NAME'"
+        log_info "Available snapshots:"
+        "$VMRUN" listSnapshots "$VM_PATH" || true
+        exit 1
+    fi
+    log_success "VM reverted to snapshot '$SNAPSHOT_NAME'"
+    
+    # Start the VM
+    log_info "Starting VM..."
+    if ! "$VMRUN" start "$VM_PATH" nogui; then
+        log_error "Failed to start VM"
+        exit 1
+    fi
+    log_success "VM started"
+    
+    # Wait for SSH to be available
+    log_info "Waiting for SSH to be available..."
+    MAX_WAIT=60
+    WAIT_COUNT=0
+    while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
+        if ssh -o ConnectTimeout=2 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$REMOTE_USER@$REMOTE_HOST" "echo 'SSH ready'" >/dev/null 2>&1; then
+            log_success "SSH is available"
+            break
+        fi
+        WAIT_COUNT=$((WAIT_COUNT + 1))
+        if [ $((WAIT_COUNT % 5)) -eq 0 ]; then
+            log_info "Still waiting for SSH... (${WAIT_COUNT}/${MAX_WAIT} seconds)"
+        fi
+        sleep 1
+    done
+    
+    if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
+        log_error "SSH did not become available within $MAX_WAIT seconds"
+        exit 1
+    fi
+else
+    log_warning "VM tools not found, skipping VM revert (assuming VM is already running)"
+fi
 
 # Step 1: Build the package locally
 log_info "Step 1: Building Debian package..."
@@ -73,15 +142,15 @@ log_info "Step 3: Installing package on remote machine..."
 REMOTE_DEB="/tmp/$(basename "$DEB_FILE")"
 
 # Uninstall old version if exists
-SSH_CMD "sudo dpkg -r lock-service 2>/dev/null || true" || true
-SSH_CMD "sudo apt-get purge -y lock-service 2>/dev/null || true" || true
+SSH_CMD "echo '$REMOTE_PASS' | sudo -S dpkg -r lock-service 2>/dev/null || true" || true
+SSH_CMD "echo '$REMOTE_PASS' | sudo -S apt-get purge -y lock-service 2>/dev/null || true" || true
 
 # Install new package
-if ! SSH_CMD "sudo apt-get install -y $REMOTE_DEB"; then
+if ! SSH_CMD "echo '$REMOTE_PASS' | sudo -S apt-get install -y $REMOTE_DEB"; then
     log_error "Package installation failed"
     log_info "Attempting to fix dependencies..."
-    SSH_CMD "sudo apt-get install -f -y" || true
-    if ! SSH_CMD "sudo apt-get install -y $REMOTE_DEB"; then
+    SSH_CMD "echo '$REMOTE_PASS' | sudo -S apt-get install -f -y" || true
+    if ! SSH_CMD "echo '$REMOTE_PASS' | sudo -S apt-get install -y $REMOTE_DEB"; then
         log_error "Package installation failed after fixing dependencies"
         exit 1
     fi

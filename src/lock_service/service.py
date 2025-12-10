@@ -296,10 +296,10 @@ class LockService:
                     continue
             
             # Also check for devices via usb subsystem more broadly
-            # Look for devices with ID_USB_INTERFACES containing adb
+            # Look for devices with ID_USB_INTERFACES containing Android Debug Bridge protocol
             try:
                 for device in context.list_devices(subsystem='usb'):
-                    # Check if this is an Android device by looking for ADB interface
+                    # Check if this is an Android device by looking for Android Debug Bridge interface
                     interfaces = device.get('ID_USB_INTERFACES', '')
                     if 'adb' in interfaces.lower() or ':' in device.get('ID_USB_INTERFACES', ''):
                         serial = device.get('ID_SERIAL_SHORT') or device.get('ID_SERIAL')

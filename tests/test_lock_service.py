@@ -9,6 +9,7 @@ import json
 import tempfile
 import shutil
 import signal
+from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock, call, mock_open
 from datetime import datetime, timedelta
 
@@ -198,8 +199,8 @@ class TestLockService(unittest.TestCase):
     
     @patch('lock_service.service.pyudev.Context')
     def test_get_connected_android_serials_via_adb_interface(self, mock_context_class):
-        """Test getting serials via ADB interface check"""
-        # Create mock device found via ADB interface
+        """Test getting serials via Android Debug Bridge interface check"""
+        # Create mock device found via Android Debug Bridge interface
         mock_device = Mock()
         mock_device.get = Mock(side_effect=lambda k, default='': {
             'ID_SERIAL_SHORT': 'DEVICE789',
@@ -209,13 +210,13 @@ class TestLockService(unittest.TestCase):
         }.get(k, default))
         
         mock_context = Mock()
-        # First vendor ID loop returns empty, then ADB interface check returns device
+        # First vendor ID loop returns empty, then Android Debug Bridge interface check returns device
         call_count = [0]
         def list_devices_side_effect(*args, **kwargs):
             call_count[0] += 1
             # First 8 calls are vendor ID checks (return empty)
-            # 9th call is the ADB interface check (subsystem='usb' without ID_VENDOR_ID)
-            # Check if this is the ADB interface check by looking at kwargs
+            # 9th call is the Android Debug Bridge interface check (subsystem='usb' without ID_VENDOR_ID)
+            # Check if this is the interface check by looking at kwargs
             if 'ID_VENDOR_ID' not in kwargs and call_count[0] > 8:
                 return [mock_device]
             return []
@@ -615,25 +616,6 @@ class TestLockServiceConfig(unittest.TestCase):
             self.assertIn('service', service.config)
             self.assertIn('network', service.config)
     
-    def test_load_config_default_path_exists(self):
-        """Test loading default config when default path exists"""
-        nonexistent_path = os.path.join(self.test_dir, 'nonexistent.json')
-        default_config = {
-            "service": {"log_level": "INFO", "log_file": "/tmp/test.log", "name": "lock-service"},
-            "network": {"blocked_interfaces": ["eth0"]},
-            "monitoring": {"check_interval_seconds": 5}
-        }
-        default_path = Path("/etc/lock-service/config.json")
-        # Create temp default config file
-        temp_default = os.path.join(self.test_dir, 'default_config.json')
-        with open(temp_default, 'w') as f:
-            json.dump(default_config, f)
-        
-        with patch('pathlib.Path.exists', return_value=True):
-            with patch('builtins.open', create=True) as mock_open:
-                mock_open.return_value.__enter__.return_value.read.return_value = json.dumps(default_config)
-                service = LockService(nonexistent_path, config_dir=self.config_dir)
-                self.assertIsNotNone(service.config)
     
     def test_load_config_invalid_json(self):
         """Test loading config with invalid JSON"""

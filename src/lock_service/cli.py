@@ -83,8 +83,10 @@ class LockCLI:
                     continue
             
             # Also check for devices via usb subsystem more broadly
+            # Look for devices with Android Debug Bridge interface protocol
             try:
                 for device in context.list_devices(subsystem='usb'):
+                    # Check if this is an Android device by looking for Android Debug Bridge interface
                     interfaces = device.get('ID_USB_INTERFACES', '')
                     if 'adb' in interfaces.lower() or ':' in device.get('ID_USB_INTERFACES', ''):
                         serial = device.get('ID_SERIAL_SHORT') or device.get('ID_SERIAL')
@@ -143,7 +145,6 @@ class LockCLI:
                 print("Please ensure:")
                 print("  1. Your Android device is connected via USB")
                 print("  2. USB debugging is enabled on the device")
-                print("  3. ADB is installed on this system")
                 print()
                 response = input("Enter device serial manually? (y/N): ")
                 if response.lower() == 'y':
