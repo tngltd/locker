@@ -18,6 +18,8 @@ class LockCLI:
     def __init__(self):
         self.config_path = "/etc/lock-service/config.json"
         self.config_dir = "/etc/lock-service"
+        self.pid_file = "/var/run/lock-service.pid"
+        self.service_pid_file = self.pid_file  # Alias for test compatibility
     
     def load_config(self) -> dict:
         """Load configuration"""
@@ -316,6 +318,243 @@ class LockCLI:
                 all_lines = f.readlines()
                 for line in all_lines[-lines:]:
                     print(line.rstrip())
+    
+    def is_service_running(self) -> bool:
+        """Check if the lock-service systemd service is running"""
+        # First try systemctl
+        try:
+            result = subprocess.run(
+                ['systemctl', 'is-active', 'lock-service'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0 and result.stdout.strip() == 'active':
+                return True
+        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+            pass
+        
+        # Fallback: check PID file
+        pid_file = getattr(self, 'service_pid_file', self.pid_file)
+        if os.path.exists(pid_file):
+            try:
+                with open(pid_file, 'r') as f:
+                    pid = int(f.read().strip())
+                    # Check if process exists (os.kill with 0 signal just checks existence)
+                    os.kill(pid, 0)
+                    return True
+            except (ValueError, OSError):
+                return False
+        return False
+    
+    def start_service(self):
+        """Start the lock-service systemd service"""
+        if self.is_service_running():
+            print("Service is already running.")
+            return
+        
+        try:
+            result = subprocess.run(
+                ['systemctl', 'start', 'lock-service'],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=True
+            )
+            print("Service started successfully.")
+        except subprocess.CalledProcessError as e:
+            print(f"Failed to start service: {e.stderr}")
+        except FileNotFoundError:
+            print("Error: systemctl not found. Cannot start service.")
+        except subprocess.TimeoutExpired:
+            print("Error: Service start command timed out.")
+        except Exception as e:
+            print(f"Error starting service: {e}")
+    
+    def stop_service(self):
+        """Stop the lock-service systemd service"""
+        if not self.is_service_running():
+            print("Service is not running.")
+            return
+        
+        try:
+            result = subprocess.run(
+                ['systemctl', 'stop', 'lock-service'],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=True
+            )
+            print("Service stopped successfully.")
+        except subprocess.CalledProcessError as e:
+            print(f"Failed to stop service: {e.stderr}")
+        except FileNotFoundError:
+            print("Error: systemctl not found. Cannot stop service.")
+        except subprocess.TimeoutExpired:
+            print("Error: Service stop command timed out.")
+        except Exception as e:
+            print(f"Error stopping service: {e}")
+    
+    def restart_service(self):
+        """Restart the lock-service systemd service"""
+        self.stop_service()
+        time.sleep(1)  # Brief pause between stop and start
+        self.start_service()
+    
+    def save_android_serial(self, serial: str):
+        """Save Android device serial to config"""
+        try:
+            config = self.load_config()
+            config['android_serial'] = serial
+            self.save_config(config)
+        except Exception as e:
+            print(f"Error saving Android serial: {e}")
+    
+    def setup(self):
+        """Interactive setup for configuring the service"""
+        print("=== Lock Service Setup ===")
+        print()
+        
+        # Check if already configured
+        existing_serial = self.get_android_serial()
+        if existing_serial:
+            print(f"Current configuration: {existing_serial}")
+            print()
+            response = input("Reconfigure? (y/N): ").strip().lower()
+            if response != 'y':
+                print("Setup cancelled.")
+                return
+        
+        # Get connected devices
+        devices = self.get_connected_devices()
+        
+        if not devices:
+            print("No Android devices found.")
+            print()
+            response = input("Enter device serial manually? (y/N): ").strip().lower()
+            if response == 'y':
+                serial = input("Enter Android device serial: ").strip()
+                if serial:
+                    self.save_android_serial(serial)
+                    print(f"Android serial configured: {serial}")
+            else:
+                print("Setup cancelled.")
+            return
+        
+        # Show devices
+        print("Connected Android devices:")
+        print("-" * 50)
+        for i, (serial, model) in enumerate(devices, 1):
+            print(f"  {i}. {serial} ({model})")
+        print("-" * 50)
+        print()
+        
+        if len(devices) == 1:
+            response = input(f"Use device {devices[0][0]}? (Y/n): ").strip().lower()
+            if response != 'n':
+                self.save_android_serial(devices[0][0])
+                print(f"Android serial configured: {devices[0][0]}")
+        else:
+            try:
+                choice = input(f"Select device (1-{len(devices)}) or enter serial: ").strip()
+                try:
+                    idx = int(choice) - 1
+                    if 0 <= idx < len(devices):
+                        self.save_android_serial(devices[idx][0])
+                        print(f"Android serial configured: {devices[idx][0]}")
+                    else:
+                        print("Invalid selection.")
+                except ValueError:
+                    # User entered serial directly
+                    if choice:
+                        self.save_android_serial(choice)
+                        print(f"Android serial configured: {choice}")
+            except KeyboardInterrupt:
+                print("\nSetup cancelled.")
+    
+    def emergency_unlock(self):
+        """Emergency unlock - manually unlock system without device"""
+        print("=== Emergency Unlock ===")
+        print()
+        print("WARNING: This will unlock the system even if the configured")
+        print("Android device is not connected.")
+        print()
+        
+        response = input("Are you sure you want to unlock? (yes/no): ").strip().lower()
+        if response != 'yes':
+            print("Cancelled.")
+            return
+        
+        try:
+            config = self.load_config()
+            blocked_interfaces = config.get('network', {}).get('blocked_interfaces', [])
+            
+            # Restore network interfaces
+            for interface in blocked_interfaces:
+                try:
+                    subprocess.run(['ip', 'link', 'set', interface, 'up'], check=False, timeout=5)
+                except Exception as e:
+                    print(f"Error restoring interface {interface}: {e}")
+            
+            # Restore SSH
+            try:
+                subprocess.run(['systemctl', 'enable', 'ssh'], check=False, timeout=5)
+                subprocess.run(['systemctl', 'start', 'ssh'], check=False, timeout=5)
+            except Exception as e:
+                print(f"Error restoring SSH: {e}")
+            
+            # Clear iptables
+            try:
+                subprocess.run(['iptables', '-F'], check=False, timeout=5)
+                subprocess.run(['iptables', '-X'], check=False, timeout=5)
+            except Exception as e:
+                print(f"Error clearing iptables: {e}")
+            
+            print("System unlocked successfully.")
+        except Exception as e:
+            print(f"Error unlocking system: {e}")
+    
+    def status(self):
+        """Show service status"""
+        print("=== Lock Service Status ===")
+        print()
+        
+        # Service running status
+        is_running = self.is_service_running()
+        print(f"Service running: {'Yes' if is_running else 'No'}")
+        print()
+        
+        # Device configuration
+        serial = self.get_android_serial()
+        if not serial:
+            print("Android device: Not configured")
+        else:
+            print(f"Android device: {serial}")
+            devices = self.get_connected_devices()
+            connected_serials = [d[0] for d in devices]
+            if serial in connected_serials:
+                print("Status: CONNECTED")
+            else:
+                print("Status: DISCONNECTED")
+        print()
+        
+        # System lock status (check iptables)
+        try:
+            result = subprocess.run(
+                ['iptables', '-L', 'INPUT', '-n'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                if 'DROP' in result.stdout:
+                    print("System status: LOCKED")
+                else:
+                    print("System status: UNLOCKED")
+            else:
+                print("System status: Unknown")
+        except Exception:
+            print("System status: Unknown")
 
 
 def main():

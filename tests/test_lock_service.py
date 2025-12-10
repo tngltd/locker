@@ -342,6 +342,7 @@ class TestLockService(unittest.TestCase):
         
         service = LockService(self.config_path, config_dir=self.config_dir)
         service.config.update({'lock_policies': {}})
+        service.mode = 'enforcing'  # Set to enforcing mode to enable locking
         
         try:
             service.run()
@@ -444,6 +445,7 @@ class TestLockService(unittest.TestCase):
         
         service = LockService(self.config_path, config_dir=self.config_dir)
         service.config.update({'lock_policies': {}, 'unlock_policies': {}})
+        service.mode = 'enforcing'  # Set to enforcing mode to enable locking
         
         try:
             service.run()

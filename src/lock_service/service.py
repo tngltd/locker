@@ -60,7 +60,8 @@ class LockService:
             else:
                 # Fallback to minimal default config
                 config = {
-                    "service": {"log_level": "INFO", "log_file": "/var/log/lock-service.log"},
+                    "service": {"log_level": "INFO", "log_file": "/var/log/lock-service.log", "name": "lock-service"},
+                    "network": {"blocked_interfaces": []},
                     "monitoring": {"check_interval_seconds": 5},
                     "mode": "permissive",
                     "android_serial": None,
@@ -75,7 +76,7 @@ class LockService:
     
     def validate_config(self, config: Dict):
         """Validate configuration structure"""
-        required_sections = ['service', 'monitoring']
+        required_sections = ['service', 'monitoring', 'network']
         for section in required_sections:
             if section not in config:
                 raise ValueError(f"Missing required config section: {section}")
@@ -84,9 +85,17 @@ class LockService:
         if 'log_level' not in config['service']:
             raise ValueError("Missing 'log_level' in service config")
         
+        # Ensure service.name exists
+        if 'name' not in config['service']:
+            config['service']['name'] = 'lock-service'
+        
         # Validate monitoring section
         if 'check_interval_seconds' not in config['monitoring']:
             raise ValueError("Missing 'check_interval_seconds' in monitoring config")
+        
+        # Validate network section
+        if 'blocked_interfaces' not in config['network']:
+            raise ValueError("Missing 'blocked_interfaces' in network config")
         
         # Validate mode
         mode = config.get('mode', 'permissive')
@@ -175,6 +184,31 @@ class LockService:
         self.logger.info("Locking system...")
         
         try:
+            lock_policies = self.config.get('lock_policies', {})
+            
+            # Disable SSH if configured
+            if lock_policies.get('disable_ssh', False):
+                self.logger.info("Disabling SSH")
+                subprocess.run(['systemctl', 'stop', 'ssh'], check=False)
+                subprocess.run(['systemctl', 'disable', 'ssh'], check=False)
+            
+            # Disable network interfaces if configured
+            if lock_policies.get('disable_network_interfaces', False):
+                blocked_interfaces = self.config.get('network', {}).get('blocked_interfaces', [])
+                for interface in blocked_interfaces:
+                    self.logger.info(f"Disabling network interface: {interface}")
+                    subprocess.run(['ip', 'link', 'set', interface, 'down'], check=False)
+            
+            # Block all ports with iptables if configured
+            if lock_policies.get('block_all_ports', False):
+                self.logger.info("Blocking all ports with iptables")
+                # Block INPUT chain
+                subprocess.run(['iptables', '-A', 'INPUT', '-j', 'DROP'], check=False)
+                # Block OUTPUT chain
+                subprocess.run(['iptables', '-A', 'OUTPUT', '-j', 'DROP'], check=False)
+                # Block FORWARD chain
+                subprocess.run(['iptables', '-A', 'FORWARD', '-j', 'DROP'], check=False)
+            
             # Stop configured services
             services_to_stop = self.config.get('services', {}).get('stop_when_locked', [])
             for service in services_to_stop:
@@ -196,6 +230,29 @@ class LockService:
         self.logger.info("Unlocking system...")
         
         try:
+            unlock_policies = self.config.get('unlock_policies', {})
+            
+            # Restore network interfaces if configured
+            if unlock_policies.get('restore_network_interfaces', False):
+                blocked_interfaces = self.config.get('network', {}).get('blocked_interfaces', [])
+                for interface in blocked_interfaces:
+                    self.logger.info(f"Restoring network interface: {interface}")
+                    subprocess.run(['ip', 'link', 'set', interface, 'up'], check=False)
+            
+            # Restore SSH if configured
+            if unlock_policies.get('restore_ssh', False):
+                self.logger.info("Restoring SSH")
+                subprocess.run(['systemctl', 'enable', 'ssh'], check=False)
+                subprocess.run(['systemctl', 'start', 'ssh'], check=False)
+            
+            # Restore all ports (clear iptables) if configured
+            if unlock_policies.get('restore_all_ports', False):
+                self.logger.info("Restoring network ports (clearing iptables)")
+                # Flush all chains
+                subprocess.run(['iptables', '-F'], check=False)
+                # Delete all user-defined chains
+                subprocess.run(['iptables', '-X'], check=False)
+            
             # Start configured services
             services_to_start = self.config.get('services', {}).get('start_when_unlocked', [])
             for service in services_to_start:
