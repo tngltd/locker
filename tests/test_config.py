@@ -35,8 +35,6 @@ class TestConfigurationSystem(unittest.TestCase):
         os.makedirs(self.log_dir, exist_ok=True)
 
         self.config_path = os.path.join(self.config_dir, 'config.json')
-        self.device_id_file = os.path.join(self.config_dir, 'device_id')
-        self.auth_file = os.path.join(self.config_dir, 'auth_data.json')
         self.log_file = os.path.join(self.log_dir, 'lock-service.log')
 
         self.valid_config = {
@@ -48,25 +46,11 @@ class TestConfigurationSystem(unittest.TestCase):
                 "pid_file": "/var/run/lock-service.pid",
                 "config_file": self.config_path
             },
-            "security": {
-                "max_pin_attempts": 3,
-                "lockout_duration_minutes": 15,
-                "recovery_code_expiry_hours": 48,
-                "challenge_timeout_seconds": 30,
-                "device_id_length": 12,
-                "pin_length": 4
-            },
             "network": {
                 "usb_interface": "usb0",
                 "blocked_interfaces": ["eth0", "wlan0"],
                 "allowed_ports": [],
                 "blocked_ports": [22]
-            },
-            "authentication": {
-                "enabled": True,
-                "require_physical_presence": True,
-                "admin_override_enabled": True,
-                "emergency_recovery_enabled": True
             },
             "monitoring": {
                 "check_interval_seconds": 5
@@ -91,9 +75,10 @@ class TestConfigurationSystem(unittest.TestCase):
         with open(self.config_path, 'w') as f:
             json.dump(self.valid_config, f)
 
-        service = LockService(self.config_path, device_id_file=self.device_id_file, auth_file=self.auth_file)
+        service = LockService(self.config_path, config_dir=self.config_dir)
         self.assertEqual(service.config['service']['name'], 'lock-service')
-        self.assertEqual(service.config['security']['max_pin_attempts'], 3)
+        self.assertIn('network', service.config)
+        self.assertIn('monitoring', service.config)
 
     def test_load_config_missing_service_section(self):
         """Test loading config with missing service section"""
@@ -104,22 +89,9 @@ class TestConfigurationSystem(unittest.TestCase):
             json.dump(invalid_config, f)
 
         with self.assertRaises(ValueError) as context:
-            LockService(self.config_path, device_id_file=self.device_id_file, auth_file=self.auth_file)
+            LockService(self.config_path, config_dir=self.config_dir)
 
         self.assertIn('service', str(context.exception))
-
-    def test_load_config_missing_security_section(self):
-        """Test loading config with missing security section"""
-        invalid_config = self.valid_config.copy()
-        del invalid_config['security']
-
-        with open(self.config_path, 'w') as f:
-            json.dump(invalid_config, f)
-
-        with self.assertRaises(ValueError) as context:
-            LockService(self.config_path, device_id_file=self.device_id_file, auth_file=self.auth_file)
-
-        self.assertIn('security', str(context.exception))
 
     def test_load_config_missing_network_section(self):
         """Test loading config with missing network section"""
@@ -130,7 +102,7 @@ class TestConfigurationSystem(unittest.TestCase):
             json.dump(invalid_config, f)
 
         with self.assertRaises(ValueError) as context:
-            LockService(self.config_path, device_id_file=self.device_id_file, auth_file=self.auth_file)
+            LockService(self.config_path, config_dir=self.config_dir)
 
         self.assertIn('network', str(context.exception))
 
@@ -143,7 +115,7 @@ class TestConfigurationSystem(unittest.TestCase):
             json.dump(invalid_config, f)
 
         with self.assertRaises(ValueError) as context:
-            LockService(self.config_path, device_id_file=self.device_id_file, auth_file=self.auth_file)
+            LockService(self.config_path, config_dir=self.config_dir)
 
         self.assertIn('monitoring', str(context.exception))
 
@@ -156,22 +128,9 @@ class TestConfigurationSystem(unittest.TestCase):
             json.dump(invalid_config, f)
 
         with self.assertRaises(ValueError) as context:
-            LockService(self.config_path, device_id_file=self.device_id_file, auth_file=self.auth_file)
+            LockService(self.config_path, config_dir=self.config_dir)
 
         self.assertIn('log_level', str(context.exception))
-
-    def test_load_config_missing_max_pin_attempts(self):
-        """Test loading config with missing max_pin_attempts"""
-        invalid_config = self.valid_config.copy()
-        del invalid_config['security']['max_pin_attempts']
-
-        with open(self.config_path, 'w') as f:
-            json.dump(invalid_config, f)
-
-        with self.assertRaises(ValueError) as context:
-            LockService(self.config_path, device_id_file=self.device_id_file, auth_file=self.auth_file)
-
-        self.assertIn('max_pin_attempts', str(context.exception))
 
     def test_load_config_missing_blocked_interfaces(self):
         """Test loading config with missing blocked_interfaces"""
@@ -182,7 +141,7 @@ class TestConfigurationSystem(unittest.TestCase):
             json.dump(invalid_config, f)
 
         with self.assertRaises(ValueError) as context:
-            LockService(self.config_path, device_id_file=self.device_id_file, auth_file=self.auth_file)
+            LockService(self.config_path, config_dir=self.config_dir)
 
         self.assertIn('blocked_interfaces', str(context.exception))
 
@@ -195,7 +154,7 @@ class TestConfigurationSystem(unittest.TestCase):
             json.dump(invalid_config, f)
 
         with self.assertRaises(ValueError) as context:
-            LockService(self.config_path, device_id_file=self.device_id_file, auth_file=self.auth_file)
+            LockService(self.config_path, config_dir=self.config_dir)
 
         self.assertIn('check_interval_seconds', str(context.exception))
 
@@ -205,7 +164,7 @@ class TestConfigurationSystem(unittest.TestCase):
             f.write("{ invalid json }")
 
         with self.assertRaises(ValueError) as context:
-            LockService(self.config_path, device_id_file=self.device_id_file, auth_file=self.auth_file)
+            LockService(self.config_path, config_dir=self.config_dir)
 
         self.assertIn('Invalid JSON', str(context.exception))
 
@@ -224,7 +183,7 @@ class TestConfigurationSystem(unittest.TestCase):
         with open(self.config_path, 'w') as f:
             json.dump(self.valid_config, f)
 
-        service = LockService(self.config_path, device_id_file=self.device_id_file, auth_file=self.auth_file)
+        service = LockService(self.config_path, config_dir=self.config_dir)
         self.assertIsNotNone(service.security_policies)
 
 
