@@ -31,19 +31,13 @@ REMOTE_USER="user"
 REMOTE_PASS="user"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Check dependencies
-if ! command -v sshpass &> /dev/null; then
-    log_error "sshpass is required. Install with: brew install hudochenkov/sshpass/sshpass"
-    exit 1
-fi
-
-# SSH command with password
+# SSH command (using SSH keys, no password needed)
 SSH_CMD() {
-    sshpass -p "$REMOTE_PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$REMOTE_USER@$REMOTE_HOST" "$@"
+    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$REMOTE_USER@$REMOTE_HOST" "$@"
 }
 
 SCP_CMD() {
-    sshpass -p "$REMOTE_PASS" scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$@"
+    scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$@"
 }
 
 log_info "Testing package installation on remote Ubuntu machine ($REMOTE_USER@$REMOTE_HOST)..."
@@ -79,15 +73,15 @@ log_info "Step 3: Installing package on remote machine..."
 REMOTE_DEB="/tmp/$(basename "$DEB_FILE")"
 
 # Uninstall old version if exists
-SSH_CMD "echo '$REMOTE_PASS' | sudo -S dpkg -r lock-service 2>/dev/null || true" || true
-SSH_CMD "echo '$REMOTE_PASS' | sudo -S apt-get purge -y lock-service 2>/dev/null || true" || true
+SSH_CMD "sudo dpkg -r lock-service 2>/dev/null || true" || true
+SSH_CMD "sudo apt-get purge -y lock-service 2>/dev/null || true" || true
 
 # Install new package
-if ! SSH_CMD "echo '$REMOTE_PASS' | sudo -S apt-get install -y $REMOTE_DEB"; then
+if ! SSH_CMD "sudo apt-get install -y $REMOTE_DEB"; then
     log_error "Package installation failed"
     log_info "Attempting to fix dependencies..."
-    SSH_CMD "echo '$REMOTE_PASS' | sudo -S apt-get install -f -y" || true
-    if ! SSH_CMD "echo '$REMOTE_PASS' | sudo -S apt-get install -y $REMOTE_DEB"; then
+    SSH_CMD "sudo apt-get install -f -y" || true
+    if ! SSH_CMD "sudo apt-get install -y $REMOTE_DEB"; then
         log_error "Package installation failed after fixing dependencies"
         exit 1
     fi

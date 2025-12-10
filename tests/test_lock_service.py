@@ -113,13 +113,37 @@ class TestLockService(unittest.TestCase):
         result = service.load_android_serial()
         self.assertIsNone(result)
     
-    @patch('subprocess.run')
-    def test_get_connected_android_serials(self, mock_subprocess):
+    @patch('lock_service.service.pyudev.Context')
+    def test_get_connected_android_serials(self, mock_context_class):
         """Test getting connected Android device serials"""
-        mock_subprocess.return_value = Mock(
-            returncode=0,
-            stdout="List of devices attached\nDEVICE123\tdevice\nDEVICE456\tdevice\n"
-        )
+        # Create mock devices
+        mock_device1 = Mock()
+        mock_device1.get = Mock(side_effect=lambda k: {
+            'ID_SERIAL_SHORT': 'DEVICE123',
+            'ID_SERIAL': 'DEVICE123',
+            'DEVPATH': '/devices/pci0000:00/0000:00:14.0/usb1/1-1'
+        }.get(k))
+        
+        mock_device2 = Mock()
+        mock_device2.get = Mock(side_effect=lambda k: {
+            'ID_SERIAL_SHORT': 'DEVICE456',
+            'ID_SERIAL': 'DEVICE456',
+            'DEVPATH': '/devices/pci0000:00/0000:00:14.0/usb1/1-2'
+        }.get(k))
+        
+        mock_context = Mock()
+        # Mock list_devices to return devices only for the first vendor ID call
+        # For other vendor IDs, return empty list
+        call_count = [0]
+        def list_devices_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            # First call (first vendor ID) returns devices, others return empty
+            if call_count[0] == 1:
+                return [mock_device1, mock_device2]
+            return []
+        
+        mock_context.list_devices = Mock(side_effect=list_devices_side_effect)
+        mock_context_class.return_value = mock_context
         
         service = LockService(self.config_path, config_dir=self.config_dir)
         serials = service.get_connected_android_serials()
@@ -128,57 +152,103 @@ class TestLockService(unittest.TestCase):
         self.assertIn('DEVICE123', serials)
         self.assertIn('DEVICE456', serials)
     
-    @patch('subprocess.run')
-    def test_get_connected_android_serials_no_devices(self, mock_subprocess):
+    @patch('lock_service.service.pyudev.Context')
+    def test_get_connected_android_serials_no_devices(self, mock_context_class):
         """Test getting serials when no devices connected"""
-        mock_subprocess.return_value = Mock(
-            returncode=0,
-            stdout="List of devices attached\n"
-        )
+        mock_context = Mock()
+        mock_context.list_devices = Mock(return_value=[])
+        mock_context_class.return_value = mock_context
         
         service = LockService(self.config_path, config_dir=self.config_dir)
         serials = service.get_connected_android_serials()
         
         self.assertEqual(len(serials), 0)
     
-    @patch('subprocess.run')
-    def test_get_connected_android_serials_adb_error(self, mock_subprocess):
-        """Test getting serials when adb fails"""
-        mock_subprocess.return_value = Mock(returncode=1, stdout="")
+    @patch('lock_service.service.pyudev.Context')
+    def test_get_connected_android_serials_adb_error(self, mock_context_class):
+        """Test getting serials when pyudev raises exception"""
+        mock_context_class.side_effect = Exception("pyudev error")
         
         service = LockService(self.config_path, config_dir=self.config_dir)
         serials = service.get_connected_android_serials()
         
         self.assertEqual(len(serials), 0)
     
-    @patch('subprocess.run')
-    def test_get_connected_android_serials_adb_not_found(self, mock_subprocess):
-        """Test getting serials when adb not installed"""
-        mock_subprocess.side_effect = FileNotFoundError()
+    @patch('lock_service.service.pyudev.Context')
+    def test_get_connected_android_serials_adb_not_found(self, mock_context_class):
+        """Test getting serials when pyudev not available"""
+        mock_context_class.side_effect = ImportError()
         
         service = LockService(self.config_path, config_dir=self.config_dir)
         serials = service.get_connected_android_serials()
         
         self.assertEqual(len(serials), 0)
     
-    @patch('subprocess.run')
-    def test_get_connected_android_serials_timeout(self, mock_subprocess):
-        """Test getting serials with timeout"""
-        import subprocess
-        mock_subprocess.side_effect = subprocess.TimeoutExpired(cmd='adb', timeout=5)
+    @patch('lock_service.service.pyudev.Context')
+    def test_get_connected_android_serials_timeout(self, mock_context_class):
+        """Test getting serials with exception handling"""
+        mock_context = Mock()
+        mock_context.list_devices = Mock(side_effect=Exception("Timeout"))
+        mock_context_class.return_value = mock_context
         
         service = LockService(self.config_path, config_dir=self.config_dir)
         serials = service.get_connected_android_serials()
         
         self.assertEqual(len(serials), 0)
     
-    @patch('subprocess.run')
-    def test_is_configured_device_connected_true(self, mock_subprocess):
+    @patch('lock_service.service.pyudev.Context')
+    def test_get_connected_android_serials_via_adb_interface(self, mock_context_class):
+        """Test getting serials via ADB interface check"""
+        # Create mock device found via ADB interface
+        mock_device = Mock()
+        mock_device.get = Mock(side_effect=lambda k, default='': {
+            'ID_SERIAL_SHORT': 'DEVICE789',
+            'ID_SERIAL': 'DEVICE789',
+            'ID_USB_INTERFACES': 'adb:ff42ff81',
+            'DEVPATH': '/devices/pci0000:00/0000:00:14.0/usb1/1-3'
+        }.get(k, default))
+        
+        mock_context = Mock()
+        # First vendor ID loop returns empty, then ADB interface check returns device
+        call_count = [0]
+        def list_devices_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            # First 8 calls are vendor ID checks (return empty)
+            # 9th call is the ADB interface check (subsystem='usb' without ID_VENDOR_ID)
+            # Check if this is the ADB interface check by looking at kwargs
+            if 'ID_VENDOR_ID' not in kwargs and call_count[0] > 8:
+                return [mock_device]
+            return []
+        
+        mock_context.list_devices = Mock(side_effect=list_devices_side_effect)
+        mock_context_class.return_value = mock_context
+        
+        service = LockService(self.config_path, config_dir=self.config_dir)
+        serials = service.get_connected_android_serials()
+        
+        self.assertIn('DEVICE789', serials)
+    
+    @patch('lock_service.service.pyudev.Context')
+    def test_is_configured_device_connected_true(self, mock_context_class):
         """Test checking if configured device is connected - true"""
-        mock_subprocess.return_value = Mock(
-            returncode=0,
-            stdout="List of devices attached\nDEVICE123\tdevice\n"
-        )
+        # Create mock device
+        mock_device = Mock()
+        mock_device.get = Mock(side_effect=lambda k: {
+            'ID_SERIAL_SHORT': 'DEVICE123',
+            'ID_SERIAL': 'DEVICE123',
+            'DEVPATH': '/devices/pci0000:00/0000:00:14.0/usb1/1-1'
+        }.get(k))
+        
+        mock_context = Mock()
+        call_count = [0]
+        def list_devices_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return [mock_device]
+            return []
+        
+        mock_context.list_devices = Mock(side_effect=list_devices_side_effect)
+        mock_context_class.return_value = mock_context
         
         # Configure device
         serial_file = os.path.join(self.config_dir, 'android_serial')
@@ -190,13 +260,27 @@ class TestLockService(unittest.TestCase):
         
         self.assertTrue(result)
     
-    @patch('subprocess.run')
-    def test_is_configured_device_connected_false(self, mock_subprocess):
+    @patch('lock_service.service.pyudev.Context')
+    def test_is_configured_device_connected_false(self, mock_context_class):
         """Test checking if configured device is connected - false"""
-        mock_subprocess.return_value = Mock(
-            returncode=0,
-            stdout="List of devices attached\nOTHER_DEVICE\tdevice\n"
-        )
+        # Create mock device with different serial
+        mock_device = Mock()
+        mock_device.get = Mock(side_effect=lambda k: {
+            'ID_SERIAL_SHORT': 'OTHER_DEVICE',
+            'ID_SERIAL': 'OTHER_DEVICE',
+            'DEVPATH': '/devices/pci0000:00/0000:00:14.0/usb1/1-1'
+        }.get(k))
+        
+        mock_context = Mock()
+        call_count = [0]
+        def list_devices_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return [mock_device]
+            return []
+        
+        mock_context.list_devices = Mock(side_effect=list_devices_side_effect)
+        mock_context_class.return_value = mock_context
         
         # Configure device
         serial_file = os.path.join(self.config_dir, 'android_serial')
@@ -269,12 +353,18 @@ class TestLockService(unittest.TestCase):
                 'restore_network_interfaces': True,
                 'restore_ssh': True,
                 'restore_all_ports': True
+            },
+            'services': {
+                'start_when_unlocked': ['nginx', 'apache']
             }
         })
         
         service.unlock_system()
         
         self.assertFalse(service.is_locked)
+        # Verify services were started
+        service_calls = [str(c) for c in mock_subprocess.call_args_list if 'systemctl' in str(c)]
+        self.assertGreater(len(service_calls), 0)
     
     @patch('subprocess.run')
     def test_unlock_system_idempotent(self, mock_subprocess):
@@ -413,22 +503,30 @@ class TestLockService(unittest.TestCase):
         # The device connects on call 3, so after 2 loop iterations it should be unlocked
         self.assertFalse(service.is_locked)
     
-    @patch('subprocess.run')
+    @patch('lock_service.service.pyudev.Context')
     @patch('time.sleep')
-    def test_run_device_disconnects_locks(self, mock_sleep, mock_subprocess):
+    def test_run_device_disconnects_locks(self, mock_sleep, mock_context_class):
         """Test run() locks when device disconnects"""
-        call_count = [0]
+        # Create mock device that disconnects
+        mock_device = Mock()
+        mock_device.get = Mock(side_effect=lambda k: {
+            'ID_SERIAL_SHORT': 'DEVICE123',
+            'ID_SERIAL': 'DEVICE123',
+            'DEVPATH': '/devices/pci0000:00/0000:00:14.0/usb1/1-1'
+        }.get(k))
         
-        def subprocess_side_effect(*args, **kwargs):
+        call_count = [0]
+        def list_devices_side_effect(*args, **kwargs):
             call_count[0] += 1
             # First few calls: device connected
             # Later calls: device disconnected
             if call_count[0] <= 3:
-                return Mock(returncode=0, stdout="List of devices attached\nDEVICE123\tdevice\n")
-            else:
-                return Mock(returncode=0, stdout="List of devices attached\n")
+                return [mock_device]
+            return []
         
-        mock_subprocess.side_effect = subprocess_side_effect
+        mock_context = Mock()
+        mock_context.list_devices = Mock(side_effect=list_devices_side_effect)
+        mock_context_class.return_value = mock_context
         
         sleep_count = [0]
         def sleep_side_effect(seconds):
@@ -509,8 +607,33 @@ class TestLockServiceConfig(unittest.TestCase):
     def test_load_config_default_fallback(self):
         """Test loading default config when file not found"""
         nonexistent_path = os.path.join(self.test_dir, 'nonexistent.json')
-        service = LockService(nonexistent_path, config_dir=self.config_dir)
-        self.assertIsNotNone(service.config)
+        # Also create a default config path that doesn't exist
+        with patch('pathlib.Path.exists', return_value=False):
+            service = LockService(nonexistent_path, config_dir=self.config_dir)
+            self.assertIsNotNone(service.config)
+            # Should have default config
+            self.assertIn('service', service.config)
+            self.assertIn('network', service.config)
+    
+    def test_load_config_default_path_exists(self):
+        """Test loading default config when default path exists"""
+        nonexistent_path = os.path.join(self.test_dir, 'nonexistent.json')
+        default_config = {
+            "service": {"log_level": "INFO", "log_file": "/tmp/test.log", "name": "lock-service"},
+            "network": {"blocked_interfaces": ["eth0"]},
+            "monitoring": {"check_interval_seconds": 5}
+        }
+        default_path = Path("/etc/lock-service/config.json")
+        # Create temp default config file
+        temp_default = os.path.join(self.test_dir, 'default_config.json')
+        with open(temp_default, 'w') as f:
+            json.dump(default_config, f)
+        
+        with patch('pathlib.Path.exists', return_value=True):
+            with patch('builtins.open', create=True) as mock_open:
+                mock_open.return_value.__enter__.return_value.read.return_value = json.dumps(default_config)
+                service = LockService(nonexistent_path, config_dir=self.config_dir)
+                self.assertIsNotNone(service.config)
     
     def test_load_config_invalid_json(self):
         """Test loading config with invalid JSON"""
@@ -546,6 +669,22 @@ class TestLockServiceConfig(unittest.TestCase):
             LockService(self.config_path, config_dir=self.config_dir)
         
         self.assertIn('network', str(context.exception))
+    
+    def test_validate_config_invalid_mode(self):
+        """Test config validation with invalid mode"""
+        config = {
+            "service": {"log_level": "INFO", "log_file": "/tmp/test.log"},
+            "network": {"blocked_interfaces": []},
+            "monitoring": {"check_interval_seconds": 5},
+            "mode": "invalid_mode"
+        }
+        with open(self.config_path, 'w') as f:
+            json.dump(config, f)
+        
+        with self.assertRaises(ValueError) as context:
+            LockService(self.config_path, config_dir=self.config_dir)
+        
+        self.assertIn('Invalid mode', str(context.exception))
     
     def test_validate_config_missing_monitoring(self):
         """Test config validation with missing monitoring section"""
