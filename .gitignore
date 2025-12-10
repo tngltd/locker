@@ -34,6 +34,7 @@ debian/lock-service/
 debian/files
 debian/*.substvars
 debian/*.log
+debian/debhelper-build-stamp
 *.deb
 *.dsc
 *.changes
