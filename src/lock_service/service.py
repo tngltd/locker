@@ -21,7 +21,6 @@ class LockService:
     def __init__(self, config_path: str = "/etc/lock-service/config.json", config_dir: str = None):
         self.config_path = config_path
         self.config = self.load_config()
-        self.security_policies = self.load_security_policies()
         self.is_locked = False
         self.running = True
         
@@ -31,8 +30,11 @@ class LockService:
         # Set config directory (allow override for testing)
         self.config_dir = config_dir or "/etc/lock-service"
         
-        # Load configured Android device serial
-        self.android_serial = self.load_android_serial()
+        # Load configured Android device serial (from config or file)
+        self.android_serial = self.config.get('android_serial') or self.load_android_serial()
+        
+        # Get mode (permissive or enforcing)
+        self.mode = self.config.get('mode', 'permissive')
         
         # Setup signal handlers
         signal.signal(signal.SIGTERM, self.signal_handler)
@@ -51,9 +53,20 @@ class LockService:
                 config = json.load(f)
         except FileNotFoundError:
             # Use default config if file doesn't exist
-            default_config_path = Path(__file__).parent / "config" / "init_config.json"
-            with open(default_config_path, 'r') as f:
-                config = json.load(f)
+            default_config_path = Path("/etc/lock-service/config.json")
+            if default_config_path.exists():
+                with open(default_config_path, 'r') as f:
+                    config = json.load(f)
+            else:
+                # Fallback to minimal default config
+                config = {
+                    "service": {"log_level": "INFO", "log_file": "/var/log/lock-service.log", "name": "lock-service"},
+                    "network": {"blocked_interfaces": []},
+                    "monitoring": {"check_interval_seconds": 5},
+                    "mode": "permissive",
+                    "android_serial": None,
+                    "services": {"stop_when_locked": [], "start_when_unlocked": []}
+                }
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON in config file: {e}")
         
@@ -63,7 +76,7 @@ class LockService:
     
     def validate_config(self, config: Dict):
         """Validate configuration structure"""
-        required_sections = ['service', 'network', 'monitoring']
+        required_sections = ['service', 'monitoring', 'network']
         for section in required_sections:
             if section not in config:
                 raise ValueError(f"Missing required config section: {section}")
@@ -72,22 +85,26 @@ class LockService:
         if 'log_level' not in config['service']:
             raise ValueError("Missing 'log_level' in service config")
         
-        # Validate network section
-        if 'blocked_interfaces' not in config['network']:
-            raise ValueError("Missing 'blocked_interfaces' in network config")
+        # Ensure service.name exists
+        if 'name' not in config['service']:
+            config['service']['name'] = 'lock-service'
         
         # Validate monitoring section
         if 'check_interval_seconds' not in config['monitoring']:
             raise ValueError("Missing 'check_interval_seconds' in monitoring config")
-    
-    def load_security_policies(self) -> Dict:
-        """Load security policies from JSON file"""
-        try:
-            policies_path = Path(__file__).parent / "config" / "security_policies.json"
-            with open(policies_path, 'r') as f:
-                return json.load(f)
-        except FileNotFoundError:
-            return {}
+        
+        # Validate network section
+        if 'blocked_interfaces' not in config['network']:
+            raise ValueError("Missing 'blocked_interfaces' in network config")
+        
+        # Validate mode
+        mode = config.get('mode', 'permissive')
+        if mode not in ['permissive', 'enforcing']:
+            raise ValueError(f"Invalid mode: {mode}. Must be 'permissive' or 'enforcing'")
+        
+        # Ensure services section exists
+        if 'services' not in config:
+            config['services'] = {'stop_when_locked': [], 'start_when_unlocked': []}
     
     def setup_logging(self):
         """Setup logging configuration"""
@@ -131,7 +148,7 @@ class LockService:
         return "Unknown Linux System"
     
     def load_android_serial(self) -> Optional[str]:
-        """Load configured Android device serial from config"""
+        """Load configured Android device serial from file (legacy support)"""
         try:
             serial_file = os.path.join(self.config_dir, 'android_serial')
             if os.path.exists(serial_file):
@@ -139,7 +156,7 @@ class LockService:
                     return f.read().strip()
         except Exception as e:
             if hasattr(self, 'logger'):
-                self.logger.error(f"Error loading Android serial: {e}")
+                self.logger.debug(f"Error loading Android serial from file: {e}")
         return None
     
     def save_android_serial(self, serial: str):
@@ -160,27 +177,44 @@ class LockService:
         return self.android_serial is not None and len(self.android_serial) > 0
     
     def lock_system(self):
-        """Lock down the system"""
+        """Lock down the system - stop configured services"""
         if self.is_locked:
             return
         
         self.logger.info("Locking system...")
         
         try:
-            # Disable SSH
-            if self.security_policies.get('lock_policies', {}).get('disable_ssh', True):
+            lock_policies = self.config.get('lock_policies', {})
+            
+            # Disable SSH if configured
+            if lock_policies.get('disable_ssh', False):
+                self.logger.info("Disabling SSH")
                 subprocess.run(['systemctl', 'stop', 'ssh'], check=False)
                 subprocess.run(['systemctl', 'disable', 'ssh'], check=False)
             
-            # Disable network interfaces
-            if self.security_policies.get('lock_policies', {}).get('disable_network_interfaces', True):
-                for interface in self.config['network']['blocked_interfaces']:
+            # Disable network interfaces if configured
+            if lock_policies.get('disable_network_interfaces', False):
+                blocked_interfaces = self.config.get('network', {}).get('blocked_interfaces', [])
+                for interface in blocked_interfaces:
+                    self.logger.info(f"Disabling network interface: {interface}")
                     subprocess.run(['ip', 'link', 'set', interface, 'down'], check=False)
             
-            # Block network ports using iptables
-            if self.security_policies.get('lock_policies', {}).get('block_all_ports', True):
+            # Block all ports with iptables if configured
+            if lock_policies.get('block_all_ports', False):
+                self.logger.info("Blocking all ports with iptables")
+                # Block INPUT chain
                 subprocess.run(['iptables', '-A', 'INPUT', '-j', 'DROP'], check=False)
+                # Block OUTPUT chain
                 subprocess.run(['iptables', '-A', 'OUTPUT', '-j', 'DROP'], check=False)
+                # Block FORWARD chain
+                subprocess.run(['iptables', '-A', 'FORWARD', '-j', 'DROP'], check=False)
+            
+            # Stop configured services
+            services_to_stop = self.config.get('services', {}).get('stop_when_locked', [])
+            for service in services_to_stop:
+                self.logger.info(f"Stopping service: {service}")
+                subprocess.run(['systemctl', 'stop', service], check=False)
+                subprocess.run(['systemctl', 'disable', service], check=False)
             
             self.is_locked = True
             self.logger.info("System locked successfully")
@@ -189,27 +223,42 @@ class LockService:
             self.logger.error(f"Error locking system: {e}")
     
     def unlock_system(self):
-        """Unlock the system"""
+        """Unlock the system - start configured services"""
         if not self.is_locked:
             return
         
         self.logger.info("Unlocking system...")
         
         try:
-            # Restore network interfaces
-            if self.security_policies.get('unlock_policies', {}).get('restore_network_interfaces', True):
-                for interface in self.config['network']['blocked_interfaces']:
+            unlock_policies = self.config.get('unlock_policies', {})
+            
+            # Restore network interfaces if configured
+            if unlock_policies.get('restore_network_interfaces', False):
+                blocked_interfaces = self.config.get('network', {}).get('blocked_interfaces', [])
+                for interface in blocked_interfaces:
+                    self.logger.info(f"Restoring network interface: {interface}")
                     subprocess.run(['ip', 'link', 'set', interface, 'up'], check=False)
             
-            # Restore SSH
-            if self.security_policies.get('unlock_policies', {}).get('restore_ssh', True):
+            # Restore SSH if configured
+            if unlock_policies.get('restore_ssh', False):
+                self.logger.info("Restoring SSH")
                 subprocess.run(['systemctl', 'enable', 'ssh'], check=False)
                 subprocess.run(['systemctl', 'start', 'ssh'], check=False)
             
-            # Clear iptables rules
-            if self.security_policies.get('unlock_policies', {}).get('restore_all_ports', True):
+            # Restore all ports (clear iptables) if configured
+            if unlock_policies.get('restore_all_ports', False):
+                self.logger.info("Restoring network ports (clearing iptables)")
+                # Flush all chains
                 subprocess.run(['iptables', '-F'], check=False)
+                # Delete all user-defined chains
                 subprocess.run(['iptables', '-X'], check=False)
+            
+            # Start configured services
+            services_to_start = self.config.get('services', {}).get('start_when_unlocked', [])
+            for service in services_to_start:
+                self.logger.info(f"Starting service: {service}")
+                subprocess.run(['systemctl', 'enable', service], check=False)
+                subprocess.run(['systemctl', 'start', service], check=False)
             
             self.is_locked = False
             self.logger.info("System unlocked successfully")
@@ -268,16 +317,23 @@ class LockService:
     
     def run(self):
         """Main service loop"""
-        self.logger.info("Lock Service started")
+        self.logger.info(f"Lock Service started (mode: {self.mode})")
         
         if not self.is_configured():
             self.logger.warning("No Android device configured. System will remain unlocked.")
-            self.logger.warning("Run 'lock-cli setup' to configure a device.")
+            self.logger.warning("Run 'lock-cli set-android-serial' to configure a device.")
+            # In permissive mode, just wait
+            if self.mode == 'permissive':
+                while self.running:
+                    time.sleep(self.config.get('monitoring', {}).get('check_interval_seconds', 5))
+                return
         
-        # Lock system on startup if configured and device not connected
-        if self.is_configured() and not self.is_configured_device_connected():
-            self.logger.info("Configured Android device not connected - locking system")
+        # In permissive mode, don't lock on startup
+        if self.mode == 'enforcing' and not self.is_configured_device_connected():
+            self.logger.info("Enforcing mode: Configured Android device not connected - locking system")
             self.lock_system()
+        elif self.mode == 'permissive':
+            self.logger.info("Permissive mode: System will not lock even if device is disconnected")
         
         check_interval = self.config.get('monitoring', {}).get('check_interval_seconds', 5)
         was_connected = self.is_configured_device_connected() if self.is_configured() else False
@@ -286,6 +342,11 @@ class LockService:
             try:
                 if not self.is_configured():
                     # No device configured - just wait
+                    time.sleep(check_interval)
+                    continue
+                
+                # Only enforce locking in enforcing mode
+                if self.mode != 'enforcing':
                     time.sleep(check_interval)
                     continue
                 
@@ -304,7 +365,7 @@ class LockService:
                     self.lock_system()
                     was_connected = False
                 
-                elif not is_connected and self.is_configured() and not self.is_locked:
+                elif not is_connected and not self.is_locked:
                     # Device not connected and system not locked - lock it
                     self.logger.info("Configured device not connected - locking system")
                     self.lock_system()
@@ -321,6 +382,7 @@ class LockService:
 
 
 def main():
+    """Entry point for lock-service command"""
     parser = argparse.ArgumentParser(description='Lock-Down Service')
     parser.add_argument('--config', default='/etc/lock-service/config.json',
                        help='Configuration file path')

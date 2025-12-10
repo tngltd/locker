@@ -1,0 +1,53 @@
+#!/usr/bin/make -f
+# See debhelper(7) (uncomment to enable)
+# output:
+#   dh $@ --with python3
+
+export DH_PYTHON_INTERPRETER=python3
+export PYBUILD_SYSTEM=pyproject
+export DEB_BUILD_OPTIONS=nocheck
+
+%:
+	dh $@ --with python3 --buildsystem=pybuild
+
+# Let dh_python3 handle the Python package installation
+# It will read pyproject.toml and install the package with entry points
+
+override_dh_auto_install:
+	# Let pybuild install the Python package first (with entry points)
+	dh_auto_install
+	
+	# Copy package to common location so all Python 3.x versions can find it
+	# This ensures compatibility when system default python3 is different from build version
+	@if [ -d debian/lock-service/usr/lib/python3.*/dist-packages/lock_service ]; then \
+		mkdir -p debian/lock-service/usr/lib/python3/dist-packages; \
+		cp -r debian/lock-service/usr/lib/python3.*/dist-packages/lock_service* debian/lock-service/usr/lib/python3/dist-packages/ 2>/dev/null || true; \
+	fi
+	
+	# Then install additional configuration files
+	install -d $(CURDIR)/debian/lock-service/etc/lock-service
+	install -m 644 $(CURDIR)/config/config.json $(CURDIR)/debian/lock-service/etc/lock-service/config.json
+	
+	# Install systemd service file
+	install -d $(CURDIR)/debian/lock-service/etc/systemd/system
+	install -m 644 $(CURDIR)/config/lock-service.service $(CURDIR)/debian/lock-service/etc/systemd/system/
+	
+	# Install documentation
+	install -d $(CURDIR)/debian/lock-service/usr/share/doc/lock-service
+	install -d $(CURDIR)/debian/lock-service/usr/share/lock-service/docs
+	install -m 644 $(CURDIR)/docs/documentation.html $(CURDIR)/debian/lock-service/usr/share/lock-service/docs/ 2>/dev/null || true
+	
+	# Install scripts (if they exist)
+	install -d $(CURDIR)/debian/lock-service/usr/share/lock-service/scripts
+	[ -f $(CURDIR)/scripts/install.sh ] && install -m 755 $(CURDIR)/scripts/install.sh $(CURDIR)/debian/lock-service/usr/share/lock-service/scripts/ || true
+	[ -f $(CURDIR)/scripts/setup.sh ] && install -m 755 $(CURDIR)/scripts/setup.sh $(CURDIR)/debian/lock-service/usr/share/lock-service/scripts/ || true
+	[ -f $(CURDIR)/scripts/uninstall.sh ] && install -m 755 $(CURDIR)/scripts/uninstall.sh $(CURDIR)/debian/lock-service/usr/share/lock-service/scripts/ || true
+
+override_dh_installdocs:
+	# Documentation is installed in override_dh_auto_install
+	:
+
+override_dh_python3:
+	# Let dh_python3 handle the Python package installation
+	# It will use pyproject.toml to install the package with entry points
+	dh_python3

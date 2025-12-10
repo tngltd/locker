@@ -1,12 +1,11 @@
 [build-system]
-requires = ["setuptools>=60.0.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "lock-service"
 version = "1.0.0"
 description = "A security service for Ubuntu systems to lock down devices when lost/stolen"
-readme = "README.md"
 requires-python = ">=3.6"
 license = {text = "MIT"}
 authors = [
@@ -38,10 +37,16 @@ dev = [
     "pytest-cov>=4.0.0",
     "coverage>=7.0.0",
 ]
+build = [
+    "setuptools>=60.0.0",
+    "wheel>=0.37.0",
+    "build>=0.8.0",
+    "twine>=4.0.0",
+]
 
 [project.scripts]
-lock-service = "lock_service:main"
-lock-cli = "lock_cli:main"
+lock-service = "lock_service.service:main"
+lock-cli = "lock_service.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/example/lock-service"
@@ -50,35 +55,34 @@ Repository = "https://github.com/example/lock-service"
 "Bug Reports" = "https://github.com/example/lock-service/issues"
 
 [tool.setuptools]
-packages = ["lock_service", "lock_cli"]
+packages = ["lock_service"]
+package-dir = {"" = "src"}
 include-package-data = true
 zip-safe = false
 
 [tool.setuptools.package-data]
-"*" = ["*.json", "*.md", "*.sh"]
+"lock_service" = ["*.json"]
 
 [tool.setuptools.data-files]
 "/etc/lock-service" = [
-    "config/init_config.json",
-    "config/security_policies.json",
+    "config/config.json",
 ]
-"/usr/local/bin" = [
-    "lock-service.py",
-    "lock-cli.py",
+"/etc/systemd/system" = [
+    "config/lock-service.service",
 ]
-"/usr/local/share/lock-service/scripts" = [
+"/usr/share/lock-service/scripts" = [
     "scripts/install.sh",
     "scripts/setup.sh",
+    "scripts/uninstall.sh",
 ]
-"/usr/local/share/lock-service/docs" = [
-    "docs/user_manual.md",
-    "docs/admin_guide.md",
+"/usr/share/lock-service/docs" = [
+    "docs/documentation.html",
 ]
 
 [tool.coverage.run]
 relative_files = true
-source = ["."]
-omit = ["tests/*", "venv/*", "setup.py"]
+source = ["src"]
+omit = ["tests/*", "venv/*"]
 
 [tool.coverage.report]
 exclude_lines = [
@@ -86,3 +90,13 @@ exclude_lines = [
     "if __name__ == .__main__.:",
 ]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+]

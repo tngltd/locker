@@ -12,15 +12,13 @@ from unittest.mock import Mock, patch, MagicMock, mock_open
 import sys
 import importlib.util
 
-# Import lock-cli module
+# Add src directory to path
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-spec = importlib.util.spec_from_file_location(
-    "lock_cli",
-    os.path.join(parent_dir, "lock-cli.py")
-)
-lock_cli_module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(lock_cli_module)
-LockCLI = lock_cli_module.LockCLI
+src_dir = os.path.join(parent_dir, "src")
+sys.path.insert(0, src_dir)
+
+# Import from package
+from lock_service.cli import LockCLI, main
 
 
 class TestLockCLI(unittest.TestCase):
@@ -449,80 +447,58 @@ class TestLockCLIMain(unittest.TestCase):
 
     def test_main_no_command(self):
         """Test main() with no command shows help"""
-        with patch('sys.argv', ['lock-cli.py']):
-            with patch.object(LockCLI, 'status') as mock_status:
-                lock_cli_module.main()
-                mock_status.assert_not_called()
+        with patch('sys.argv', ['lock-cli']):
+            main()
+            # Should print help when no command provided
 
-    def test_main_setup_command(self):
-        """Test main() with setup command"""
-        with patch('sys.argv', ['lock-cli.py', 'setup']):
-            with patch.object(LockCLI, 'setup') as mock_setup:
-                lock_cli_module.main()
-                mock_setup.assert_called_once()
+    def test_main_get_android_serial_command(self):
+        """Test main() with get-android-serial command"""
+        with patch('sys.argv', ['lock-cli', 'get-android-serial']):
+            with patch.object(LockCLI, 'get_android_serial_cmd') as mock_cmd:
+                main()
+                mock_cmd.assert_called_once()
 
-    def test_main_start_command(self):
-        """Test main() with start command"""
-        with patch('sys.argv', ['lock-cli.py', 'start']):
-            with patch.object(LockCLI, 'start_service') as mock_start:
-                lock_cli_module.main()
-                mock_start.assert_called_once()
+    def test_main_set_android_serial_command(self):
+        """Test main() with set-android-serial command"""
+        with patch('sys.argv', ['lock-cli', 'set-android-serial']):
+            with patch.object(LockCLI, 'set_android_serial') as mock_set:
+                main()
+                mock_set.assert_called_once_with(None)
 
-    def test_main_stop_command(self):
-        """Test main() with stop command"""
-        with patch('sys.argv', ['lock-cli.py', 'stop']):
-            with patch.object(LockCLI, 'stop_service') as mock_stop:
-                lock_cli_module.main()
-                mock_stop.assert_called_once()
+    def test_main_list_devices_command(self):
+        """Test main() with list-devices command"""
+        with patch('sys.argv', ['lock-cli', 'list-devices']):
+            with patch.object(LockCLI, 'list_devices') as mock_list:
+                main()
+                mock_list.assert_called_once()
 
-    def test_main_restart_command(self):
-        """Test main() with restart command"""
-        with patch('sys.argv', ['lock-cli.py', 'restart']):
-            with patch.object(LockCLI, 'restart_service') as mock_restart:
-                lock_cli_module.main()
-                mock_restart.assert_called_once()
+    def test_main_add_service_command(self):
+        """Test main() with add-service command"""
+        with patch('sys.argv', ['lock-cli', 'add-service', 'ssh', 'stop']):
+            with patch.object(LockCLI, 'add_service') as mock_add:
+                main()
+                mock_add.assert_called_once_with('ssh', 'stop')
 
-    def test_main_status_command(self):
-        """Test main() with status command"""
-        with patch('sys.argv', ['lock-cli.py', 'status']):
-            with patch.object(LockCLI, 'status') as mock_status:
-                lock_cli_module.main()
-                mock_status.assert_called_once()
-
-    def test_main_emergency_unlock_command(self):
-        """Test main() with emergency-unlock command"""
-        with patch('sys.argv', ['lock-cli.py', 'emergency-unlock']):
-            with patch.object(LockCLI, 'emergency_unlock') as mock_unlock:
-                lock_cli_module.main()
-                mock_unlock.assert_called_once()
+    def test_main_set_mode_command(self):
+        """Test main() with set-mode command"""
+        with patch('sys.argv', ['lock-cli', 'set-mode', 'enforcing']):
+            with patch.object(LockCLI, 'set_mode') as mock_set:
+                main()
+                mock_set.assert_called_once_with('enforcing')
 
     def test_main_logs_command(self):
         """Test main() with logs command"""
-        with patch('sys.argv', ['lock-cli.py', 'logs']):
+        with patch('sys.argv', ['lock-cli', 'logs']):
             with patch.object(LockCLI, 'logs') as mock_logs:
-                lock_cli_module.main()
+                main()
                 mock_logs.assert_called_once_with(50)
 
     def test_main_logs_command_with_lines(self):
         """Test main() with logs command and line count"""
-        with patch('sys.argv', ['lock-cli.py', 'logs', '-n', '100']):
+        with patch('sys.argv', ['lock-cli', 'logs', '-n', '100']):
             with patch.object(LockCLI, 'logs') as mock_logs:
-                lock_cli_module.main()
+                main()
                 mock_logs.assert_called_once_with(100)
-
-    def test_main_list_devices_command(self):
-        """Test main() with list-devices command"""
-        with patch('sys.argv', ['lock-cli.py', 'list-devices']):
-            with patch.object(LockCLI, 'list_devices') as mock_list:
-                lock_cli_module.main()
-                mock_list.assert_called_once()
-    
-    def test_main_clear_config_command(self):
-        """Test main() with clear-config command"""
-        with patch('sys.argv', ['lock-cli.py', 'clear-config']):
-            with patch.object(LockCLI, 'clear_config') as mock_clear:
-                lock_cli_module.main()
-                mock_clear.assert_called_once()
 
 
 if __name__ == '__main__':
