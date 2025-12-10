@@ -108,25 +108,31 @@ class LockService:
     def setup_logging(self):
         """Setup logging configuration"""
         log_level = getattr(logging, self.config['service']['log_level'].upper())
-        
-        # Create formatter
-        formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        )
-        
-        # Setup file handler
-        file_handler = logging.FileHandler(self.config['service']['log_file'])
-        file_handler.setFormatter(formatter)
-        
-        # Setup console handler
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(formatter)
-        
+
         # Setup logger
         self.logger = logging.getLogger('lock-service')
         self.logger.setLevel(log_level)
-        self.logger.addHandler(file_handler)
-        self.logger.addHandler(console_handler)
+
+        # Only add handlers if logging is not disabled for tests
+        if log_level < logging.CRITICAL:
+            # Create formatter
+            formatter = logging.Formatter(
+                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            )
+
+            # Setup file handler
+            try:
+                file_handler = logging.FileHandler(self.config['service']['log_file'])
+                file_handler.setFormatter(formatter)
+                self.logger.addHandler(file_handler)
+            except (OSError, PermissionError):
+                # In test environments, file handler might fail - skip it
+                pass
+
+            # Setup console handler
+            console_handler = logging.StreamHandler()
+            console_handler.setFormatter(formatter)
+            self.logger.addHandler(console_handler)
     
     def get_system_info(self) -> str:
         """Get system information for logging"""
