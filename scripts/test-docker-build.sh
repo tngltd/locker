@@ -239,16 +239,16 @@ docker exec "$TEST_CONTAINER" bash -c "dpkg -l locker" || true
 
 # Verify Python package is installed and importable
 log_info "Verifying Python package installation..."
-if docker exec "$TEST_CONTAINER" bash -c "python3 -c 'import lock_service' 2>&1"; then
-    log_success "✓ Python package 'lock_service' is importable"
+if docker exec "$TEST_CONTAINER" bash -c "python3 -c 'import locker' 2>&1"; then
+    log_success "✓ Python package 'locker' is importable"
 else
-    log_error "✗ Python package 'lock_service' not importable"
-    docker exec "$TEST_CONTAINER" bash -c "python3 -c 'import lock_service' 2>&1" || true
+    log_error "✗ Python package 'locker' not importable"
+    docker exec "$TEST_CONTAINER" bash -c "python3 -c 'import locker' 2>&1" || true
     # Check where Python is looking
     log_info "Python sys.path:"
     docker exec "$TEST_CONTAINER" bash -c "python3 -c 'import sys; print(\"\\n\".join(sys.path))'" || true
     log_info "Package location:"
-    docker exec "$TEST_CONTAINER" bash -c "ls -la /usr/lib/python3*/dist-packages/lock_service* 2>/dev/null || find /usr/lib/python* -name 'lock_service' -type d 2>/dev/null" || true
+    docker exec "$TEST_CONTAINER" bash -c "ls -la /usr/lib/python3*/dist-packages/locker* 2>/dev/null || find /usr/lib/python* -name 'locker' -type d 2>/dev/null" || true
     exit 1
 fi
 

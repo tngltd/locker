@@ -18,7 +18,7 @@ src_dir = os.path.join(parent_dir, "src")
 sys.path.insert(0, src_dir)
 
 # Import from package
-from lock_service.cli import LockCLI, main
+from locker.cli import LockCLI, main
 
 
 class TestLockCLI(unittest.TestCase):

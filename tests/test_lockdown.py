@@ -19,7 +19,7 @@ src_dir = os.path.join(parent_dir, "src")
 sys.path.insert(0, src_dir)
 
 # Import from package
-from lock_service.service import LockService
+from locker.service import LockService
 
 
 class TestSystemLockdown(unittest.TestCase):
@@ -70,7 +70,7 @@ class TestSystemLockdown(unittest.TestCase):
         import logging
         logging.disable(logging.NOTSET)
 
-    @patch('lock_service.service.subprocess.run')
+    @patch('locker.service.subprocess.run')
     def test_lock_system_disables_ssh(self, mock_subprocess):
         """Test that lock_system disables SSH"""
         service = LockService(self.config_path, config_dir=self.config_dir)
@@ -93,7 +93,7 @@ class TestSystemLockdown(unittest.TestCase):
         self.assertTrue(disable_found, "systemctl disable ssh not called")
         self.assertTrue(service.is_locked)
 
-    @patch('lock_service.service.subprocess.run')
+    @patch('locker.service.subprocess.run')
     def test_lock_system_disables_network_interfaces(self, mock_subprocess):
         """Test that lock_system disables network interfaces"""
         service = LockService(self.config_path, config_dir=self.config_dir)
@@ -113,7 +113,7 @@ class TestSystemLockdown(unittest.TestCase):
                         break
             self.assertTrue(found, f"ip link set {interface} down not called")
 
-    @patch('lock_service.service.subprocess.run')
+    @patch('locker.service.subprocess.run')
     def test_lock_system_blocks_ports(self, mock_subprocess):
         """Test that lock_system blocks ports with iptables"""
         service = LockService(self.config_path, config_dir=self.config_dir)
@@ -131,7 +131,7 @@ class TestSystemLockdown(unittest.TestCase):
                 break
         self.assertTrue(drop_found, "iptables DROP rule not added")
 
-    @patch('lock_service.service.subprocess.run')
+    @patch('locker.service.subprocess.run')
     def test_lock_system_idempotent(self, mock_subprocess):
         """Test that lock_system is idempotent"""
         service = LockService(self.config_path, config_dir=self.config_dir)
@@ -143,7 +143,7 @@ class TestSystemLockdown(unittest.TestCase):
         # Should not make additional calls if already locked
         self.assertEqual(len(mock_subprocess.call_args_list), initial_call_count)
 
-    @patch('lock_service.service.subprocess.run')
+    @patch('locker.service.subprocess.run')
     def test_unlock_system_restores_network_interfaces(self, mock_subprocess):
         """Test that unlock_system restores network interfaces"""
         service = LockService(self.config_path, config_dir=self.config_dir)
@@ -165,7 +165,7 @@ class TestSystemLockdown(unittest.TestCase):
             self.assertTrue(found, f"ip link set {interface} up not called")
         self.assertFalse(service.is_locked)
 
-    @patch('lock_service.service.subprocess.run')
+    @patch('locker.service.subprocess.run')
     def test_unlock_system_restores_ssh(self, mock_subprocess):
         """Test that unlock_system restores SSH"""
         service = LockService(self.config_path, config_dir=self.config_dir)
@@ -178,7 +178,7 @@ class TestSystemLockdown(unittest.TestCase):
         self.assertTrue(any('systemctl' in str(c) and 'enable' in str(c) and 'ssh' in str(c) for c in calls))
         self.assertTrue(any('systemctl' in str(c) and 'start' in str(c) and 'ssh' in str(c) for c in calls))
 
-    @patch('lock_service.service.subprocess.run')
+    @patch('locker.service.subprocess.run')
     def test_unlock_system_clears_iptables(self, mock_subprocess):
         """Test that unlock_system clears iptables rules"""
         service = LockService(self.config_path, config_dir=self.config_dir)
@@ -200,7 +200,7 @@ class TestSystemLockdown(unittest.TestCase):
         self.assertTrue(flush_found, "iptables -F not called")
         self.assertTrue(delete_found, "iptables -X not called")
 
-    @patch('lock_service.service.subprocess.run')
+    @patch('locker.service.subprocess.run')
     def test_unlock_system_idempotent(self, mock_subprocess):
         """Test that unlock_system is idempotent"""
         service = LockService(self.config_path, config_dir=self.config_dir)
@@ -212,7 +212,7 @@ class TestSystemLockdown(unittest.TestCase):
         # Should not make additional calls if already unlocked
         self.assertEqual(len(mock_subprocess.call_args_list), initial_call_count)
 
-    @patch('lock_service.service.subprocess.run')
+    @patch('locker.service.subprocess.run')
     def test_lock_unlock_cycle(self, mock_subprocess):
         """Test a complete lock/unlock cycle"""
         service = LockService(self.config_path, config_dir=self.config_dir)

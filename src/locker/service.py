@@ -5,13 +5,11 @@ A security service for Ubuntu systems to lock down devices when the configured A
 """
 
 import os
-import sys
 import json
 import time
 import signal
 import logging
 import subprocess
-import uuid
 from pathlib import Path
 from typing import Dict, Optional, List
 import argparse

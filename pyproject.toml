@@ -45,7 +45,8 @@ build = [
 ]
 
 [project.scripts]
-locker = "lock_service.service:main"
+locker = "locker.cli:main"
+lockerd = "locker.service:main"
 
 [project.urls]
 Homepage = "https://github.com/example/locker"
@@ -54,13 +55,13 @@ Repository = "https://github.com/example/locker"
 "Bug Reports" = "https://github.com/example/locker/issues"
 
 [tool.setuptools]
-packages = ["lock_service"]
+packages = ["locker"]
 package-dir = {"" = "src"}
 include-package-data = true
 zip-safe = false
 
 [tool.setuptools.package-data]
-"lock_service" = ["*.json"]
+"locker" = ["*.json"]
 
 [tool.setuptools.data-files]
 "/etc/locker" = [

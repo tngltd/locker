@@ -19,9 +19,9 @@ override_dh_auto_install:
 	
 	# Copy package to common location so all Python 3.x versions can find it
 	# This ensures compatibility when system default python3 is different from build version
-	@if [ -d debian/locker/usr/lib/python3.*/dist-packages/lock_service ]; then \
+	@if [ -d debian/locker/usr/lib/python3.*/dist-packages/locker ]; then \
 		mkdir -p debian/locker/usr/lib/python3/dist-packages; \
-		cp -r debian/locker/usr/lib/python3.*/dist-packages/lock_service* debian/locker/usr/lib/python3/dist-packages/ 2>/dev/null || true; \
+		cp -r debian/locker/usr/lib/python3.*/dist-packages/locker* debian/locker/usr/lib/python3/dist-packages/ 2>/dev/null || true; \
 	fi
 	
 	# Then install additional configuration files
