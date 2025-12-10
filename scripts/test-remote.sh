@@ -111,19 +111,40 @@ else
     log_warning "VM tools not found, skipping VM revert (assuming VM is already running)"
 fi
 
-# Step 1: Build the package locally
+# Step 1: Clean and rebuild the package locally
+log_info "Step 1: Cleaning old build artifacts..."
+# Remove old deb files
+rm -f "$PROJECT_DIR"/locker_*.deb
+rm -f "$(dirname "$PROJECT_DIR")"/locker_*.deb
+# Clean debian build directory
+rm -rf "$PROJECT_DIR"/debian/locker
+rm -f "$PROJECT_DIR"/debian/debhelper-build-stamp
+rm -f "$PROJECT_DIR"/debian/files
+rm -f "$PROJECT_DIR"/debian/*.substvars
+rm -f "$PROJECT_DIR"/debian/*.log
+
 log_info "Step 1: Building Debian package..."
-if ! ./scripts/build-with-docker.sh >/dev/null 2>&1; then
+if ! ./scripts/build-with-docker.sh; then
     log_error "Package build failed"
-    ./scripts/build-with-docker.sh 2>&1 | tail -20
     exit 1
 fi
 
 # Find the built package
-DEB_FILE=$(find "$PROJECT_DIR" -maxdepth 1 -name "lock-service_*.deb" -type f | head -1)
+DEB_FILE=$(find "$PROJECT_DIR" -maxdepth 1 -name "locker_*.deb" -type f | head -1)
+
+# Also check parent directory (where dpkg-buildpackage might put it)
+if [ -z "$DEB_FILE" ]; then
+    DEB_FILE=$(find "$(dirname "$PROJECT_DIR")" -maxdepth 1 -name "locker_*.deb" -type f | head -1)
+    if [ -n "$DEB_FILE" ]; then
+        # Move it to project directory
+        mv "$DEB_FILE" "$PROJECT_DIR/"
+        DEB_FILE="$PROJECT_DIR/$(basename "$DEB_FILE")"
+    fi
+fi
 
 if [ -z "$DEB_FILE" ] || [ ! -f "$DEB_FILE" ]; then
-    log_error "Package file not found"
+    log_error "Package file not found after build"
+    log_info "Searched in: $PROJECT_DIR and $(dirname "$PROJECT_DIR")"
     exit 1
 fi
 
@@ -142,8 +163,8 @@ log_info "Step 3: Installing package on remote machine..."
 REMOTE_DEB="/tmp/$(basename "$DEB_FILE")"
 
 # Uninstall old version if exists
-SSH_CMD "echo '$REMOTE_PASS' | sudo -S dpkg -r lock-service 2>/dev/null || true" || true
-SSH_CMD "echo '$REMOTE_PASS' | sudo -S apt-get purge -y lock-service 2>/dev/null || true" || true
+SSH_CMD "echo '$REMOTE_PASS' | sudo -S dpkg -r locker 2>/dev/null || true" || true
+SSH_CMD "echo '$REMOTE_PASS' | sudo -S apt-get purge -y locker 2>/dev/null || true" || true
 
 # Install new package
 if ! SSH_CMD "echo '$REMOTE_PASS' | sudo -S apt-get install -y $REMOTE_DEB"; then
@@ -157,16 +178,16 @@ if ! SSH_CMD "echo '$REMOTE_PASS' | sudo -S apt-get install -y $REMOTE_DEB"; the
 fi
 log_success "Package installed successfully!"
 
-# Step 4: Test lock-cli list-devices returns exit code 0
-log_info "Step 4: Testing lock-cli list-devices returns exit code 0..."
-EXIT_CODE=$(SSH_CMD "lock-cli list-devices >/dev/null 2>&1; echo \$?" || echo "failed")
+# Step 4: Test locker list-devices returns exit code 0
+log_info "Step 4: Testing locker list-devices returns exit code 0..."
+EXIT_CODE=$(SSH_CMD "locker list-devices >/dev/null 2>&1; echo \$?" || echo "failed")
 
 if [ "$EXIT_CODE" = "0" ]; then
-    log_success "✓ lock-cli list-devices returns exit code 0"
+    log_success "✓ locker list-devices returns exit code 0"
 else
-    log_error "✗ lock-cli list-devices failed with exit code: $EXIT_CODE"
+    log_error "✗ locker list-devices failed with exit code: $EXIT_CODE"
     log_error "Full error output:"
-    SSH_CMD "lock-cli list-devices 2>&1" || true
+    SSH_CMD "locker list-devices 2>&1" || true
     
     # Debug information
     log_info "Debug information:"
@@ -176,16 +197,16 @@ else
     SSH_CMD "python3 -c 'import sys; print(sys.executable)'" || true
     log_info "Python sys.path:"
     SSH_CMD "python3 -c 'import sys; print(\"\\n\".join(sys.path))'" || true
-    log_info "lock-cli location:"
-    SSH_CMD "which lock-cli || echo 'not in PATH'" || true
-    log_info "lock-cli file:"
-    SSH_CMD "ls -la /usr/bin/lock-cli 2>/dev/null || echo 'file not found'" || true
-    log_info "lock-cli content (first 10 lines):"
-    SSH_CMD "head -10 /usr/bin/lock-cli 2>/dev/null || echo 'cannot read file'" || true
+    log_info "locker location:"
+    SSH_CMD "which locker || echo 'not in PATH'" || true
+    log_info "locker file:"
+    SSH_CMD "ls -la /usr/bin/locker 2>/dev/null || echo 'file not found'" || true
+    log_info "locker content (first 10 lines):"
+    SSH_CMD "head -10 /usr/bin/locker 2>/dev/null || echo 'cannot read file'" || true
     log_info "Python package location:"
-    SSH_CMD "find /usr/lib/python* -name 'lock_service' -type d 2>/dev/null || echo 'package not found'" || true
+    SSH_CMD "find /usr/lib/python* -name 'locker' -type d 2>/dev/null || echo 'package not found'" || true
     log_info "Python import test:"
-    SSH_CMD "python3 -c 'import lock_service; print(\"Import OK\")' 2>&1 || echo 'import failed'" || true
+    SSH_CMD "python3 -c 'import locker; print(\"Import OK\")' 2>&1 || echo 'import failed'" || true
     
     exit 1
 fi

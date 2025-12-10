@@ -30,7 +30,7 @@ dist/
 .pybuild/
 
 # Debian package build artifacts
-debian/lock-service/
+debian/locker/
 debian/files
 debian/*.substvars
 debian/*.log
@@ -39,7 +39,7 @@ debian/debhelper-build-stamp
 *.dsc
 *.changes
 *.tar.gz
-../lock-service_*
+../locker_*
 
 # Testing
 .pytest_cache/

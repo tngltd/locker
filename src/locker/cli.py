@@ -17,9 +17,9 @@ import pyudev
 
 class LockCLI:
     def __init__(self):
-        self.config_path = "/etc/lock-service/config.json"
-        self.config_dir = "/etc/lock-service"
-        self.pid_file = "/var/run/lock-service.pid"
+        self.config_path = "/etc/locker/config.json"
+        self.config_dir = "/etc/locker"
+        self.pid_file = "/var/run/locker.pid"
         self.service_pid_file = self.pid_file  # Alias for test compatibility
     
     def load_config(self) -> dict:
@@ -128,7 +128,7 @@ class LockCLI:
         if len(devices) == 1:
             print(f"Serial: {devices[0][0]}")
         else:
-            print("Use 'lock-cli set-android-serial <serial>' to configure one of these devices.")
+            print("Use \"locker set-android-serial <serial>\" to configure one of these devices.")
     
     def set_android_serial(self, serial: Optional[str] = None):
         """Set Android device serial"""
@@ -222,40 +222,32 @@ class LockCLI:
         print()
         print(f"Total: {len(devices)} device(s)")
     
-    def add_service(self, service_name: str, action: str):
-        """Add a service to stop when locked or start when unlocked"""
-        print(f"=== Add Service ===")
+    def add_service(self, service_name: str):
+        """Add a service to be managed (started on connection, stopped on disconnection)"""
+        print("=== Add Service ===")
         print()
-        
-        if action not in ['stop', 'start']:
-            print("Error: Action must be 'stop' or 'start'")
-            print("  'stop' - service will be stopped when system is locked")
-            print("  'start' - service will be started when system is unlocked")
-            return
         
         try:
             config = self.load_config()
             if 'services' not in config:
-                config['services'] = {'stop_when_locked': [], 'start_when_unlocked': []}
+                config['services'] = []
+            elif not isinstance(config['services'], list):
+                # Convert old format to new format
+                if isinstance(config['services'], dict):
+                    old_stop = config['services'].get('stop_when_locked', [])
+                    old_start = config['services'].get('start_when_unlocked', [])
+                    config['services'] = list(set(old_stop + old_start))
+                else:
+                    config['services'] = []
             
-            if action == 'stop':
-                services_list = config['services'].get('stop_when_locked', [])
-                if service_name not in services_list:
-                    services_list.append(service_name)
-                    config['services']['stop_when_locked'] = services_list
-                    self.save_config(config)
-                    print(f"Service '{service_name}' added to stop list.")
-                else:
-                    print(f"Service '{service_name}' is already in the stop list.")
-            else:  # start
-                services_list = config['services'].get('start_when_unlocked', [])
-                if service_name not in services_list:
-                    services_list.append(service_name)
-                    config['services']['start_when_unlocked'] = services_list
-                    self.save_config(config)
-                    print(f"Service '{service_name}' added to start list.")
-                else:
-                    print(f"Service '{service_name}' is already in the start list.")
+            services_list = config['services']
+            if service_name not in services_list:
+                services_list.append(service_name)
+                config['services'] = services_list
+                self.save_config(config)
+                print(f"Service \"{service_name}\" added. It will be started when device connects and stopped when device disconnects.")
+            else:
+                print(f"Service \"{service_name}\" is already in the services list.")
         except Exception as e:
             print(f"Error adding service: {e}")
     
@@ -276,11 +268,11 @@ class LockCLI:
             if response in ['permissive', 'enforcing']:
                 mode = response
             else:
-                print("Invalid mode. Must be 'permissive' or 'enforcing'")
+                print("Invalid mode. Must be \"permissive\" or \"enforcing\"")
                 return
         
         if mode not in ['permissive', 'enforcing']:
-            print("Error: Mode must be 'permissive' or 'enforcing'")
+            print("Error: Mode must be \"permissive\" or \"enforcing\"")
             return
         
         try:
@@ -291,7 +283,7 @@ class LockCLI:
                 serial = config.get('android_serial')
                 if not serial:
                     print("Error: Cannot set enforcing mode without configured Android serial.")
-                    print("Run 'lock-cli set-android-serial' first.")
+                    print("Run \"locker set-android-serial\" first.")
                     return
             
             config['mode'] = mode
@@ -309,9 +301,9 @@ class LockCLI:
         """Show service logs"""
         try:
             config = self.load_config()
-            log_file = config.get('service', {}).get('log_file', '/var/log/lock-service.log')
+            log_file = config.get('service', {}).get('log_file', '/var/log/locker.log')
         except:
-            log_file = "/var/log/lock-service.log"
+            log_file = "/var/log/locker.log"
         
         if not os.path.exists(log_file):
             print("No log file found.")
@@ -327,11 +319,11 @@ class LockCLI:
                     print(line.rstrip())
     
     def is_service_running(self) -> bool:
-        """Check if the lock-service systemd service is running"""
+        """Check if the locker systemd service is running"""
         # First try systemctl
         try:
             result = subprocess.run(
-                ['systemctl', 'is-active', 'lock-service'],
+                ['systemctl', 'is-active', 'locker'],
                 capture_output=True,
                 text=True,
                 timeout=5
@@ -355,14 +347,14 @@ class LockCLI:
         return False
     
     def start_service(self):
-        """Start the lock-service systemd service"""
+        """Start the locker systemd service"""
         if self.is_service_running():
             print("Service is already running.")
             return
         
         try:
             result = subprocess.run(
-                ['systemctl', 'start', 'lock-service'],
+                ['systemctl', 'start', 'locker'],
                 capture_output=True,
                 text=True,
                 timeout=10,
@@ -379,14 +371,14 @@ class LockCLI:
             print(f"Error starting service: {e}")
     
     def stop_service(self):
-        """Stop the lock-service systemd service"""
+        """Stop the locker systemd service"""
         if not self.is_service_running():
             print("Service is not running.")
             return
         
         try:
             result = subprocess.run(
-                ['systemctl', 'stop', 'lock-service'],
+                ['systemctl', 'stop', 'locker'],
                 capture_output=True,
                 text=True,
                 timeout=10,
@@ -403,7 +395,7 @@ class LockCLI:
             print(f"Error stopping service: {e}")
     
     def restart_service(self):
-        """Restart the lock-service systemd service"""
+        """Restart the locker systemd service"""
         self.stop_service()
         time.sleep(1)  # Brief pause between stop and start
         self.start_service()
@@ -565,7 +557,7 @@ class LockCLI:
 
 
 def main():
-    """Entry point for lock-cli command"""
+    """Entry point for locker command"""
     parser = argparse.ArgumentParser(description='Lock-Down Service CLI')
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
     
@@ -577,10 +569,8 @@ def main():
     subparsers.add_parser('list-devices', help='List connected Android devices')
     
     # Service management
-    add_service_parser = subparsers.add_parser('add-service', help='Add service to stop/start list')
+    add_service_parser = subparsers.add_parser('add-service', help='Add service to be managed (started on connection, stopped on disconnection)')
     add_service_parser.add_argument('service', help='Service name (e.g., ssh, nginx)')
-    add_service_parser.add_argument('action', choices=['stop', 'start'], 
-                                   help="'stop' when locked or 'start' when unlocked")
     
     # Mode management
     set_mode_parser = subparsers.add_parser('set-mode', help='Set mode (permissive/enforcing)')
@@ -607,7 +597,7 @@ def main():
     elif args.command == 'list-devices':
         cli.list_devices()
     elif args.command == 'add-service':
-        cli.add_service(args.service, args.action)
+        cli.add_service(args.service)
     elif args.command == 'set-mode':
         cli.set_mode(getattr(args, 'mode', None))
     elif args.command == 'logs':
