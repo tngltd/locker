@@ -206,6 +206,7 @@ class TestAuthenticationSystem(unittest.TestCase):
         """Test that authentication fails during lockout period"""
         service = LockService(self.config_path, device_id_file=self.device_id_file, auth_file=self.auth_file)
         service.set_pin("1234")
+        service.is_locked = True  # System must be locked for lockout check
         service.failed_attempts = 3
         service.lockout_until = datetime.now() + timedelta(minutes=15)
         
