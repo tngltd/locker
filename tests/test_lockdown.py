@@ -28,13 +28,13 @@ class TestSystemLockdown(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures"""
         self.test_dir = tempfile.mkdtemp()
-        self.config_dir = os.path.join(self.test_dir, 'etc', 'lock-service')
+        self.config_dir = os.path.join(self.test_dir, 'etc', 'locker')
         self.log_dir = os.path.join(self.test_dir, 'var', 'log')
         os.makedirs(self.config_dir, exist_ok=True)
         os.makedirs(self.log_dir, exist_ok=True)
 
         self.config_path = os.path.join(self.config_dir, 'config.json')
-        self.log_file = os.path.join(self.log_dir, 'lock-service.log')
+        self.log_file = os.path.join(self.log_dir, 'locker.log')
 
         self.default_config = {
             "service": {

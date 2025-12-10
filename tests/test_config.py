@@ -27,13 +27,13 @@ class TestConfigurationSystem(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures"""
         self.test_dir = tempfile.mkdtemp()
-        self.config_dir = os.path.join(self.test_dir, 'etc', 'lock-service')
+        self.config_dir = os.path.join(self.test_dir, 'etc', 'locker')
         self.log_dir = os.path.join(self.test_dir, 'var', 'log')
         os.makedirs(self.config_dir, exist_ok=True)
         os.makedirs(self.log_dir, exist_ok=True)
 
         self.config_path = os.path.join(self.config_dir, 'config.json')
-        self.log_file = os.path.join(self.log_dir, 'lock-service.log')
+        self.log_file = os.path.join(self.log_dir, 'locker.log')
 
         self.valid_config = {
             "service": {
@@ -62,7 +62,7 @@ class TestConfigurationSystem(unittest.TestCase):
             json.dump(self.valid_config, f)
 
         service = LockService(self.config_path, config_dir=self.config_dir)
-        self.assertEqual(service.config['service']['name'], 'lock-service')
+        self.assertEqual(service.config['service']['name'], 'locker')
         self.assertIn('network', service.config)
         self.assertIn('monitoring', service.config)
 

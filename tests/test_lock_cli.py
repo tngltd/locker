@@ -29,15 +29,15 @@ class TestLockCLI(unittest.TestCase):
         self.test_dir = tempfile.mkdtemp()
         self.config_path = os.path.join(self.test_dir, 'config.json')
         self.config_dir = os.path.join(self.test_dir, 'config')
-        self.pid_file = os.path.join(self.test_dir, 'lock-service.pid')
-        self.log_file = os.path.join(self.test_dir, 'lock-service.log')
+        self.pid_file = os.path.join(self.test_dir, 'locker.pid')
+        self.log_file = os.path.join(self.test_dir, 'locker.log')
         
         os.makedirs(self.config_dir, exist_ok=True)
         
         # Create test config
         test_config = {
             "service": {
-                "name": "lock-service",
+                "name": "locker",
                 "log_file": self.log_file
             },
             "network": {
@@ -254,14 +254,14 @@ class TestLockCLIEdgeCases(unittest.TestCase):
         self.test_dir = tempfile.mkdtemp()
         self.config_path = os.path.join(self.test_dir, 'config.json')
         self.config_dir = os.path.join(self.test_dir, 'config')
-        self.pid_file = os.path.join(self.test_dir, 'lock-service.pid')
-        self.log_file = os.path.join(self.test_dir, 'lock-service.log')
+        self.pid_file = os.path.join(self.test_dir, 'locker.pid')
+        self.log_file = os.path.join(self.test_dir, 'locker.log')
         
         os.makedirs(self.config_dir, exist_ok=True)
         
         test_config = {
             "service": {
-                "name": "lock-service",
+                "name": "locker",
                 "log_file": self.log_file
             },
             "network": {
@@ -434,7 +434,7 @@ class TestLockCLIMain(unittest.TestCase):
         self.config_path = os.path.join(self.test_dir, 'config.json')
         
         test_config = {
-            "service": {"name": "lock-service", "log_file": "/tmp/test.log"},
+            "service": {"name": "locker", "log_file": "/tmp/test.log"},
             "network": {"blocked_interfaces": ["eth0"]}
         }
         
@@ -447,55 +447,55 @@ class TestLockCLIMain(unittest.TestCase):
 
     def test_main_no_command(self):
         """Test main() with no command shows help"""
-        with patch('sys.argv', ['lock-cli']):
+        with patch('sys.argv', ['locker']):
             main()
             # Should print help when no command provided
 
     def test_main_get_android_serial_command(self):
         """Test main() with get-android-serial command"""
-        with patch('sys.argv', ['lock-cli', 'get-android-serial']):
+        with patch('sys.argv', ['locker', 'get-android-serial']):
             with patch.object(LockCLI, 'get_android_serial_cmd') as mock_cmd:
                 main()
                 mock_cmd.assert_called_once()
 
     def test_main_set_android_serial_command(self):
         """Test main() with set-android-serial command"""
-        with patch('sys.argv', ['lock-cli', 'set-android-serial']):
+        with patch('sys.argv', ['locker', 'set-android-serial']):
             with patch.object(LockCLI, 'set_android_serial') as mock_set:
                 main()
                 mock_set.assert_called_once_with(None)
 
     def test_main_list_devices_command(self):
         """Test main() with list-devices command"""
-        with patch('sys.argv', ['lock-cli', 'list-devices']):
+        with patch('sys.argv', ['locker', 'list-devices']):
             with patch.object(LockCLI, 'list_devices') as mock_list:
                 main()
                 mock_list.assert_called_once()
 
     def test_main_add_service_command(self):
         """Test main() with add-service command"""
-        with patch('sys.argv', ['lock-cli', 'add-service', 'ssh', 'stop']):
+        with patch('sys.argv', ['locker', 'add-service', 'ssh']):
             with patch.object(LockCLI, 'add_service') as mock_add:
                 main()
-                mock_add.assert_called_once_with('ssh', 'stop')
+                mock_add.assert_called_once_with('ssh')
 
     def test_main_set_mode_command(self):
         """Test main() with set-mode command"""
-        with patch('sys.argv', ['lock-cli', 'set-mode', 'enforcing']):
+        with patch('sys.argv', ['locker', 'set-mode', 'enforcing']):
             with patch.object(LockCLI, 'set_mode') as mock_set:
                 main()
                 mock_set.assert_called_once_with('enforcing')
 
     def test_main_logs_command(self):
         """Test main() with logs command"""
-        with patch('sys.argv', ['lock-cli', 'logs']):
+        with patch('sys.argv', ['locker', 'logs']):
             with patch.object(LockCLI, 'logs') as mock_logs:
                 main()
                 mock_logs.assert_called_once_with(50)
 
     def test_main_logs_command_with_lines(self):
         """Test main() with logs command and line count"""
-        with patch('sys.argv', ['lock-cli', 'logs', '-n', '100']):
+        with patch('sys.argv', ['locker', 'logs', '-n', '100']):
             with patch.object(LockCLI, 'logs') as mock_logs:
                 main()
                 mock_logs.assert_called_once_with(100)

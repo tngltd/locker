@@ -355,9 +355,7 @@ class TestLockService(unittest.TestCase):
                 'restore_ssh': True,
                 'restore_all_ports': True
             },
-            'services': {
-                'start_when_unlocked': ['nginx', 'apache']
-            }
+            'services': ['nginx', 'apache']
         })
         
         service.unlock_system()
@@ -741,7 +739,7 @@ class TestLockServiceMain(unittest.TestCase):
         
         test_config = {
             "service": {
-                "name": "lock-service",
+                "name": "locker",
                 "version": "1.0.0",
                 "log_level": "CRITICAL",
                 "log_file": os.path.join(self.test_dir, 'test.log'),
@@ -771,7 +769,7 @@ class TestLockServiceMain(unittest.TestCase):
         """Test main() with default arguments"""
         mock_run.return_value = None
         
-        with patch('sys.argv', ['lock-service', '--config', self.config_path]):
+        with patch('sys.argv', ['locker', '--config', self.config_path]):
             main()
         
         mock_run.assert_called_once()
@@ -781,7 +779,7 @@ class TestLockServiceMain(unittest.TestCase):
         """Test main() with --daemon flag"""
         mock_run.return_value = None
         
-        with patch('sys.argv', ['lock-service', '--config', self.config_path, '--daemon']):
+        with patch('sys.argv', ['locker', '--config', self.config_path, '--daemon']):
             with patch('daemon.DaemonContext') as mock_daemon:
                 mock_daemon.return_value.__enter__ = Mock()
                 mock_daemon.return_value.__exit__ = Mock(return_value=False)

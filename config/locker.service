@@ -7,21 +7,20 @@ Wants=network.target
 Type=simple
 User=root
 Group=root
-ExecStart=/usr/bin/lock-service --config /etc/lock-service/config.json --daemon
+ExecStart=/usr/bin/locker --config /etc/locker/config.json --daemon
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=lock-service
+SyslogIdentifier=locker
 
 # Security settings
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/etc/lock-service /var/log /var/run
+ReadWritePaths=/etc/locker /var/log /var/run
 
 [Install]
 WantedBy=multi-user.target
-

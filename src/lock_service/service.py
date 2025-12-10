@@ -19,7 +19,7 @@ import pyudev
 
 
 class LockService:
-    def __init__(self, config_path: str = "/etc/lock-service/config.json", config_dir: str = None):
+    def __init__(self, config_path: str = "/etc/locker/config.json", config_dir: str = None):
         self.config_path = config_path
         self.config = self.load_config()
         self.is_locked = False
@@ -29,7 +29,7 @@ class LockService:
         self.setup_logging()
         
         # Set config directory (allow override for testing)
-        self.config_dir = config_dir or "/etc/lock-service"
+        self.config_dir = config_dir or "/etc/locker"
         
         # Load configured Android device serial (from config or file)
         self.android_serial = self.config.get('android_serial') or self.load_android_serial()
@@ -44,7 +44,7 @@ class LockService:
         if self.android_serial:
             self.logger.info(f"Lock Service initialized. Configured Android serial: {self.android_serial}")
         else:
-            self.logger.warning("Lock Service initialized. No Android device configured - run 'lock-cli setup' first")
+            self.logger.warning("Lock Service initialized. No Android device configured - run \"locker setup\" first")
         self.logger.info(f"System OS: {self.get_system_info()}")
     
     def load_config(self) -> Dict:
@@ -54,20 +54,28 @@ class LockService:
                 config = json.load(f)
         except FileNotFoundError:
             # Use default config if file doesn't exist
-            default_config_path = Path("/etc/lock-service/config.json")
+            default_config_path = Path("/etc/locker/config.json")
             if default_config_path.exists():
                 with open(default_config_path, 'r') as f:
                     config = json.load(f)
             else:
-                # Fallback to minimal default config
-                config = {
-                    "service": {"log_level": "INFO", "log_file": "/var/log/lock-service.log", "name": "lock-service"},
-                    "network": {"blocked_interfaces": []},
-                    "monitoring": {"check_interval_seconds": 5},
-                    "mode": "permissive",
-                    "android_serial": None,
-                    "services": {"stop_when_locked": [], "start_when_unlocked": []}
-                }
+                # Fallback to minimal default config from config/config.json
+                # Find the config file relative to this source file
+                source_dir = Path(__file__).parent.parent.parent
+                fallback_config_path = source_dir / "config" / "config.json"
+                if fallback_config_path.exists():
+                    with open(fallback_config_path, 'r') as f:
+                        config = json.load(f)
+                else:
+                    # Last resort: minimal config
+                    config = {
+                        "service": {"log_level": "INFO", "log_file": "/var/log/locker.log", "name": "locker"},
+                        "network": {"blocked_interfaces": []},
+                        "monitoring": {"check_interval_seconds": 5},
+                        "mode": "permissive",
+                        "android_serial": None,
+                        "services": []
+                    }
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON in config file: {e}")
         
@@ -84,35 +92,44 @@ class LockService:
         
         # Validate service section
         if 'log_level' not in config['service']:
-            raise ValueError("Missing 'log_level' in service config")
+            raise ValueError("Missing \"log_level\" in service config")
         
         # Ensure service.name exists
         if 'name' not in config['service']:
-            config['service']['name'] = 'lock-service'
+            config['service']['name'] = 'locker'
         
         # Validate monitoring section
         if 'check_interval_seconds' not in config['monitoring']:
-            raise ValueError("Missing 'check_interval_seconds' in monitoring config")
+            raise ValueError("Missing \"check_interval_seconds\" in monitoring config")
         
         # Validate network section
         if 'blocked_interfaces' not in config['network']:
-            raise ValueError("Missing 'blocked_interfaces' in network config")
+            raise ValueError("Missing \"blocked_interfaces\" in network config")
         
         # Validate mode
         mode = config.get('mode', 'permissive')
         if mode not in ['permissive', 'enforcing']:
-            raise ValueError(f"Invalid mode: {mode}. Must be 'permissive' or 'enforcing'")
+            raise ValueError(f"Invalid mode: {mode}. Must be \"permissive\" or \"enforcing\"")
         
-        # Ensure services section exists
+        # Ensure services section exists as a list
         if 'services' not in config:
-            config['services'] = {'stop_when_locked': [], 'start_when_unlocked': []}
+            config['services'] = []
+        elif not isinstance(config['services'], list):
+            # Convert old format to new format
+            if isinstance(config['services'], dict):
+                # Merge stop_when_locked and start_when_unlocked into a single list
+                old_stop = config['services'].get('stop_when_locked', [])
+                old_start = config['services'].get('start_when_unlocked', [])
+                config['services'] = list(set(old_stop + old_start))
+            else:
+                config['services'] = []
     
     def setup_logging(self):
         """Setup logging configuration"""
         log_level = getattr(logging, self.config['service']['log_level'].upper())
 
         # Setup logger
-        self.logger = logging.getLogger('lock-service')
+        self.logger = logging.getLogger('locker')
         self.logger.setLevel(log_level)
 
         # Only add handlers if logging is not disabled for tests
@@ -211,7 +228,7 @@ class LockService:
                 subprocess.run(['iptables', '-A', 'FORWARD', '-j', 'DROP'], check=False)
             
             # Stop configured services
-            services_to_stop = self.config.get('services', {}).get('stop_when_locked', [])
+            services_to_stop = self.config.get('services', [])
             for service in services_to_stop:
                 self.logger.info(f"Stopping service: {service}")
                 subprocess.run(['systemctl', 'stop', service], check=False)
@@ -255,7 +272,7 @@ class LockService:
                 subprocess.run(['iptables', '-X'], check=False)
             
             # Start configured services
-            services_to_start = self.config.get('services', {}).get('start_when_unlocked', [])
+            services_to_start = self.config.get('services', [])
             for service in services_to_start:
                 self.logger.info(f"Starting service: {service}")
                 subprocess.run(['systemctl', 'enable', service], check=False)
@@ -338,7 +355,7 @@ class LockService:
         
         if not self.is_configured():
             self.logger.warning("No Android device configured. System will remain unlocked.")
-            self.logger.warning("Run 'lock-cli set-android-serial' to configure a device.")
+            self.logger.warning("Run \"locker set-android-serial\" to configure a device.")
             # In permissive mode, just wait
             if self.mode == 'permissive':
                 while self.running:
@@ -399,9 +416,9 @@ class LockService:
 
 
 def main():
-    """Entry point for lock-service command"""
+    """Entry point for locker command"""
     parser = argparse.ArgumentParser(description='Lock-Down Service')
-    parser.add_argument('--config', default='/etc/lock-service/config.json',
+    parser.add_argument('--config', default='/etc/locker/config.json',
                        help='Configuration file path')
     parser.add_argument('--daemon', action='store_true',
                        help='Run as daemon')

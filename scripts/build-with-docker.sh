@@ -38,8 +38,8 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_DIR"
 
 # Docker image name
-IMAGE_NAME="lock-service-deb-builder"
-CONTAINER_NAME="lock-service-build-$$"
+IMAGE_NAME="locker-deb-builder"
+CONTAINER_NAME="locker-build-$$"
 
 # Build/rebuild Docker image
 log_info "Building Docker image..."
@@ -55,14 +55,14 @@ docker run --rm \
     -v "$PROJECT_DIR:/build" \
     -w /build \
     "$IMAGE_NAME" \
-    bash -c "rm -rf debian/lock-service debian/files debian/*.substvars debian/*.log ../lock-service_* && cd /build && dpkg-buildpackage -b -us -uc -d && if [ -f ../lock-service_*.deb ]; then cp ../lock-service_*.deb /build/; fi"
+    bash -c "rm -rf debian/locker debian/files debian/*.substvars debian/*.log ../locker_* && cd /build && dpkg-buildpackage -b -us -uc -d && if [ -f ../locker_*.deb ]; then cp ../locker_*.deb /build/; fi"
 
 # Find the built package (debuild puts it in parent directory)
-DEB_FILE=$(find "$(dirname "$PROJECT_DIR")" -maxdepth 1 -name "lock-service_*.deb" -type f 2>/dev/null | head -1)
+DEB_FILE=$(find "$(dirname "$PROJECT_DIR")" -maxdepth 1 -name "locker_*.deb" -type f 2>/dev/null | head -1)
 
 if [ -z "$DEB_FILE" ]; then
     # Check project directory as fallback
-    DEB_FILE=$(find "$PROJECT_DIR" -maxdepth 1 -name "lock-service_*.deb" -type f 2>/dev/null | head -1)
+    DEB_FILE=$(find "$PROJECT_DIR" -maxdepth 1 -name "locker_*.deb" -type f 2>/dev/null | head -1)
 fi
 
 if [ -z "$DEB_FILE" ] || [ ! -f "$DEB_FILE" ]; then

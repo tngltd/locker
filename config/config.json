@@ -1,15 +1,15 @@
 {
   "service": {
     "log_level": "INFO",
-    "log_file": "/var/log/lock-service.log"
+    "log_file": "/var/log/locker.log"
+  },
+  "network": {
+    "blocked_interfaces": []
   },
   "monitoring": {
     "check_interval_seconds": 5
   },
   "mode": "permissive",
   "android_serial": null,
-  "services": {
-    "stop_when_locked": [],
-    "start_when_unlocked": []
-  }
+  "services": []
 }

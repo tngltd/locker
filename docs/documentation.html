@@ -252,7 +252,7 @@
         <div id="developer" class="tab-content active">
             <div class="content">
                 <h1>Developer Guide</h1>
-                <p>This guide explains how to build the Debian package for lock-service.</p>
+                <p>This guide explains how to build the Debian package for locker.</p>
 
                 <h2>Building the Package</h2>
                 <p>The package can be built on both Mac and Linux using Docker.</p>
@@ -270,7 +270,7 @@
                 <ul>
                     <li>Build a Docker image with Ubuntu and Debian build tools (first time only)</li>
                     <li>Run the build inside a Docker container</li>
-                    <li>Output <code>lock-service_1.0.0-1_all.deb</code> in your project directory</li>
+                    <li>Output <code>locker_1.0.0-1_all.deb</code> in your project directory</li>
                 </ul>
 
                 <h4>2. Test the Build (Optional)</h4>
@@ -286,12 +286,12 @@
                 <h3>Package Structure</h3>
                 <p>The Debian package includes:</p>
                 <ul>
-                    <li><code>/usr/bin/lock-service</code> - Service daemon entry point (installed by Python package)</li>
-                    <li><code>/usr/bin/lock-cli</code> - CLI management tool entry point (installed by Python package)</li>
+                    <li><code>/usr/bin/locker</code> - Service daemon entry point (installed by Python package)</li>
+                    <li><code>/usr/bin/locker</code> - CLI management tool entry point (installed by Python package)</li>
                     <li><code>/usr/lib/python3/dist-packages/lock_service/</code> - Python package source code</li>
-                    <li><code>/etc/lock-service/config.json</code> - Configuration file</li>
-                    <li><code>/etc/systemd/system/lock-service.service</code> - Systemd service file</li>
-                    <li><code>/usr/share/lock-service/</code> - Scripts and documentation</li>
+                    <li><code>/etc/locker/config.json</code> - Configuration file</li>
+                    <li><code>/etc/systemd/system/locker.service</code> - Systemd service file</li>
+                    <li><code>/usr/share/locker/</code> - Scripts and documentation</li>
                 </ul>
 
                 <h3>Dependencies</h3>
@@ -311,12 +311,12 @@
 pip install -e .
 
 # Then use the commands directly
-lock-cli --help
-lock-service --help</code></pre>
+locker --help
+locker --help</code></pre>
 
                 <h3>Project Structure</h3>
                 <div class="file-tree">
-lock-service/
+locker/
 ├── src/
 │   └── lock_service/       # Python package source
 │       ├── __init__.py
@@ -324,7 +324,7 @@ lock-service/
 │       └── cli.py          # Command line tool
 ├── config/
 │   ├── config.json         # Default configuration
-│   └── lock-service.service # Systemd service file
+│   └── locker.service # Systemd service file
 ├── debian/                 # Debian package metadata
 │   ├── control
 │   ├── rules
@@ -347,55 +347,48 @@ lock-service/
         <div id="user" class="tab-content">
             <div class="content">
                 <h1>User Guide</h1>
-                <p>This guide explains how to install and configure lock-service on your Ubuntu system.</p>
+                <p>This guide explains how to install and configure locker on your Ubuntu system.</p>
 
                 <h2>Installation</h2>
                 <h3>1. Install the Package</h3>
-                <pre><code>sudo apt install -y ./lock-service_1.0.0-1_all.deb</code></pre>
+                <pre><code>sudo apt install -y ./locker_1.0.0-1_all.deb</code></pre>
                 <p>Or if the package is in a different location:</p>
-                <pre><code>sudo mv lock-service_1.0.0-1_all.deb /tmp/
-sudo apt install -y /tmp/lock-service_1.0.0-1_all.deb</code></pre>
+                <pre><code>sudo mv locker_1.0.0-1_all.deb /tmp/
+sudo apt install -y /tmp/locker_1.0.0-1_all.deb</code></pre>
 
                 <h3>2. Verify Installation</h3>
                 <pre><code># Check if package is installed
-dpkg -l | grep lock-service
+dpkg -l | grep locker
 
 # Test the CLI
-lock-cli --help</code></pre>
+locker --help</code></pre>
 
                 <h2>Configuration</h2>
                 <p>After installation, the service starts in <strong>permissive mode</strong>, which means it won't lock the system even if the device is disconnected.</p>
 
                 <h3>Step 1: Get Android Device Serial</h3>
                 <p>Connect your Android device via USB and get its serial number:</p>
-                <pre><code>lock-cli get-android-serial</code></pre>
+                <pre><code>locker get-android-serial</code></pre>
                 <p>This will show all connected Android devices with their serial numbers.</p>
 
                 <h3>Step 2: Configure Android Serial</h3>
                 <p>Set the Android device serial that will control the lock:</p>
                 <pre><code># Option 1: Select from connected devices
-lock-cli set-android-serial
+locker set-android-serial
 
 # Option 2: Set serial directly
-lock-cli set-android-serial ABC123XYZ</code></pre>
+locker set-android-serial ABC123XYZ</code></pre>
 
                 <h3>Step 3: Add Services to Control</h3>
-                <p>Configure which services should be stopped when locked and started when unlocked:</p>
-                <pre><code># Add service to stop when locked
-lock-cli add-service ssh stop
-
-# Add service to start when unlocked
-lock-cli add-service ssh start
-
-# Add multiple services
-lock-cli add-service nginx stop
-lock-cli add-service nginx start
-lock-cli add-service mysql stop
-lock-cli add-service mysql start</code></pre>
+                <p>Configure which services should be managed (started on connection, stopped on disconnection):</p>
+                <pre><code># Add services to be managed
+locker add-service ssh
+locker add-service nginx
+locker add-service mysql</code></pre>
 
                 <h3>Step 4: Switch to Enforcing Mode</h3>
                 <p>Once configuration is complete, switch to enforcing mode. <strong>Warning:</strong> In enforcing mode, the system will lock if the configured Android device is not connected.</p>
-                <pre><code>lock-cli set-mode enforcing</code></pre>
+                <pre><code>locker set-mode enforcing</code></pre>
                 <div class="note">
                     <strong>Important:</strong> Make sure your Android device is connected before switching to enforcing mode, otherwise the system will lock immediately.
                 </div>
@@ -417,18 +410,18 @@ lock-cli add-service mysql start</code></pre>
                 </ul>
 
                 <h2>Service Management</h2>
-                <p>Use systemctl to manage the lock-service:</p>
+                <p>Use systemctl to manage the locker:</p>
                 <pre><code># Start the service
-sudo systemctl start lock-service
+sudo systemctl start locker
 
 # Stop the service
-sudo systemctl stop lock-service
+sudo systemctl stop locker
 
 # Check status
-sudo systemctl status lock-service
+sudo systemctl status locker
 
 # View logs
-sudo journalctl -u lock-service -f</code></pre>
+sudo journalctl -u locker -f</code></pre>
 
                 <h2>CLI Commands</h2>
                 <table>
@@ -440,65 +433,58 @@ sudo journalctl -u lock-service -f</code></pre>
                     </thead>
                     <tbody>
                         <tr>
-                            <td><code>lock-cli get-android-serial</code></td>
+                            <td><code>locker get-android-serial</code></td>
                             <td>Get serial numbers of connected Android devices</td>
                         </tr>
                         <tr>
-                            <td><code>lock-cli set-android-serial [serial]</code></td>
+                            <td><code>locker set-android-serial [serial]</code></td>
                             <td>Configure Android device serial</td>
                         </tr>
                         <tr>
-                            <td><code>lock-cli list-devices</code></td>
+                            <td><code>locker list-devices</code></td>
                             <td>List all connected Android devices</td>
                         </tr>
                         <tr>
-                            <td><code>lock-cli add-service &lt;service&gt; stop</code></td>
-                            <td>Add service to stop when system is locked</td>
+                            <td><code>locker add-service &lt;service&gt;</code></td>
+                            <td>Add service to be managed (started on connection, stopped on disconnection)</td>
                         </tr>
                         <tr>
-                            <td><code>lock-cli add-service &lt;service&gt; start</code></td>
-                            <td>Add service to start when system is unlocked</td>
-                        </tr>
-                        <tr>
-                            <td><code>lock-cli set-mode [permissive|enforcing]</code></td>
+                            <td><code>locker set-mode [permissive|enforcing]</code></td>
                             <td>Set mode (permissive or enforcing)</td>
                         </tr>
                         <tr>
-                            <td><code>lock-cli logs [-n N]</code></td>
+                            <td><code>locker logs [-n N]</code></td>
                             <td>Show service logs (last N lines, default 50)</td>
                         </tr>
                     </tbody>
                 </table>
 
                 <h2>Configuration File</h2>
-                <p>The configuration is stored in <code>/etc/lock-service/config.json</code>:</p>
+                <p>The configuration is stored in <code>/etc/locker/config.json</code>:</p>
                 <pre><code>{
   "service": {
     "log_level": "INFO",
-    "log_file": "/var/log/lock-service.log"
+    "log_file": "/var/log/locker.log"
   },
   "monitoring": {
     "check_interval_seconds": 5
   },
   "mode": "permissive",
   "android_serial": "ABC123XYZ",
-  "services": {
-    "stop_when_locked": ["ssh", "nginx"],
-    "start_when_unlocked": ["ssh", "nginx"]
-  }
+  "services": ["ssh", "nginx"]
 }</code></pre>
 
                 <h2>Uninstallation</h2>
-                <pre><code>sudo apt remove lock-service</code></pre>
-                <p>This will remove the package but keep configuration files in <code>/etc/lock-service/</code>.</p>
+                <pre><code>sudo apt remove locker</code></pre>
+                <p>This will remove the package but keep configuration files in <code>/etc/locker/</code>.</p>
 
                 <h2>Troubleshooting</h2>
                 <h3>Service Not Starting</h3>
                 <pre><code># Check service status
-sudo systemctl status lock-service
+sudo systemctl status locker
 
 # View logs
-sudo journalctl -u lock-service -n 50</code></pre>
+sudo journalctl -u locker -n 50</code></pre>
 
                 <h3>Device Not Detected</h3>
                 <ul>
@@ -509,9 +495,9 @@ sudo journalctl -u lock-service -n 50</code></pre>
 
                 <h3>Switch Back to Permissive Mode</h3>
                 <p>If you're locked out, you can switch back to permissive mode by editing the config file directly (requires physical access):</p>
-                <pre><code>sudo nano /etc/lock-service/config.json
+                <pre><code>sudo nano /etc/locker/config.json
 # Change "mode": "enforcing" to "mode": "permissive"
-sudo systemctl restart lock-service</code></pre>
+sudo systemctl restart locker</code></pre>
             </div>
         </div>
     </div>

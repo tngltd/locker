@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "lock-service"
+name = "locker"
 version = "1.0.0"
 description = "A security service for Ubuntu systems to lock down devices when lost/stolen"
 requires-python = ">=3.6"
@@ -45,14 +45,13 @@ build = [
 ]
 
 [project.scripts]
-lock-service = "lock_service.service:main"
-lock-cli = "lock_service.cli:main"
+locker = "lock_service.service:main"
 
 [project.urls]
-Homepage = "https://github.com/example/lock-service"
-Documentation = "https://github.com/example/lock-service/wiki"
-Repository = "https://github.com/example/lock-service"
-"Bug Reports" = "https://github.com/example/lock-service/issues"
+Homepage = "https://github.com/example/locker"
+Documentation = "https://github.com/example/locker/wiki"
+Repository = "https://github.com/example/locker"
+"Bug Reports" = "https://github.com/example/locker/issues"
 
 [tool.setuptools]
 packages = ["lock_service"]
@@ -64,18 +63,18 @@ zip-safe = false
 "lock_service" = ["*.json"]
 
 [tool.setuptools.data-files]
-"/etc/lock-service" = [
+"/etc/locker" = [
     "config/config.json",
 ]
 "/etc/systemd/system" = [
-    "config/lock-service.service",
+    "config/locker.service",
 ]
-"/usr/share/lock-service/scripts" = [
+"/usr/share/locker/scripts" = [
     "scripts/install.sh",
     "scripts/setup.sh",
     "scripts/uninstall.sh",
 ]
-"/usr/share/lock-service/docs" = [
+"/usr/share/locker/docs" = [
     "docs/documentation.html",
 ]
 

@@ -1,12 +1,12 @@
 #!/bin/bash
 set -e
 
-# Pre-removal script for lock-service
+# Pre-removal script for locker
 
 # Stop and disable service before removal
 if command -v systemctl >/dev/null 2>&1; then
-    systemctl stop lock-service 2>/dev/null || true
-    systemctl disable lock-service 2>/dev/null || true
+    systemctl stop locker 2>/dev/null || true
+    systemctl disable locker 2>/dev/null || true
 fi
 
 #DEBHELPER#

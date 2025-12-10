@@ -1,15 +1,15 @@
 #!/bin/bash
 set -e
 
-# Post-installation script for lock-service
+# Post-installation script for locker
 
 # Reload systemd (only if systemd is running)
 if command -v systemctl >/dev/null 2>&1 && systemctl is-system-running >/dev/null 2>&1; then
     systemctl daemon-reload
     
     # Enable and start the service
-    systemctl enable lock-service || true
-    systemctl start lock-service || true
+    systemctl enable locker || true
+    systemctl start locker || true
 elif [ -d /run/systemd/system ]; then
     # Systemd is installed but not running (e.g., in Docker)
     # Just create the service file, it will be enabled on next boot
@@ -17,8 +17,8 @@ elif [ -d /run/systemd/system ]; then
 fi
 
 # Create log rotation configuration
-cat > /etc/logrotate.d/lock-service << 'EOF'
-/var/log/lock-service.log {
+cat > /etc/logrotate.d/locker << 'EOF'
+/var/log/locker.log {
     daily
     missingok
     rotate 30
@@ -27,19 +27,19 @@ cat > /etc/logrotate.d/lock-service << 'EOF'
     notifempty
     create 644 root root
     postrotate
-        systemctl reload lock-service > /dev/null 2>&1 || true
+        systemctl reload locker > /dev/null 2>&1 || true
     endscript
 }
 EOF
 
 
-echo "Lock-service installed successfully."
+echo "Locker installed successfully."
 echo "The service has been enabled and started."
 echo "Next steps:"
-echo "  1. Run 'lock-cli get-android-serial' to see connected devices"
-echo "  2. Run 'lock-cli set-android-serial' to configure an Android device"
-echo "  3. Run 'lock-cli add-service <service> stop|start' to configure services"
-echo "  4. Run 'lock-cli set-mode enforcing' to enable locking"
-echo "  5. Check service status with 'systemctl status lock-service'"
+echo "  1. Run 'locker get-android-serial' to see connected devices"
+echo "  2. Run 'locker set-android-serial' to configure an Android device"
+echo "  3. Run 'locker add-service <service>' to configure services"
+echo "  4. Run 'locker set-mode enforcing' to enable locking"
+echo "  5. Check service status with 'systemctl status locker'"
 
 #DEBHELPER#
