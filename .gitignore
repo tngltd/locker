@@ -7,6 +7,7 @@ __pycache__/
 
 # Virtual environments
 venv/
+.venv/
 env/
 ENV/
 
@@ -26,6 +27,18 @@ build/
 dist/
 *.egg-info/
 .eggs/
+.pybuild/
+
+# Debian package build artifacts
+debian/lock-service/
+debian/files
+debian/*.substvars
+debian/*.log
+*.deb
+*.dsc
+*.changes
+*.tar.gz
+../lock-service_*
 
 # Testing
 .pytest_cache/
@@ -39,3 +52,4 @@ htmlcov/
 # Temporary files
 *.tmp
 *.bak
+extract/

@@ -13,15 +13,13 @@ from datetime import datetime
 import sys
 import importlib.util
 
-# Import lock-service module
+# Add src directory to path
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-spec = importlib.util.spec_from_file_location(
-    "lock_service",
-    os.path.join(parent_dir, "lock-service.py")
-)
-lock_service_module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(lock_service_module)
-LockService = lock_service_module.LockService
+src_dir = os.path.join(parent_dir, "src")
+sys.path.insert(0, src_dir)
+
+# Import from package
+from lock_service.service import LockService
 
 
 class TestSystemLockdown(unittest.TestCase):
@@ -40,31 +38,15 @@ class TestSystemLockdown(unittest.TestCase):
 
         self.default_config = {
             "service": {
-                "name": "lock-service",
-                "version": "1.0.0",
                 "log_level": "INFO",
-                "log_file": self.log_file,
-                "pid_file": "/var/run/lock-service.pid",
-                "config_file": self.config_path
+                "log_file": self.log_file
             },
             "network": {
-                "usb_interface": "usb0",
-                "blocked_interfaces": ["eth0", "wlan0"],
-                "allowed_ports": [],
-                "blocked_ports": [22]
+                "blocked_interfaces": ["eth0", "wlan0"]
             },
             "monitoring": {
                 "check_interval_seconds": 1
             },
-            "logging": {
-                "verbose": True,
-                "include_device_info": True,
-                "external_logging": {"enabled": False}
-            }
-        }
-        
-        # Create security policies
-        self.security_policies = {
             "lock_policies": {
                 "disable_ssh": True,
                 "disable_network_interfaces": True,
@@ -79,11 +61,6 @@ class TestSystemLockdown(unittest.TestCase):
         
         with open(self.config_path, 'w') as f:
             json.dump(self.default_config, f)
-        
-        # Create security policies file
-        policies_path = os.path.join(self.config_dir, 'security_policies.json')
-        with open(policies_path, 'w') as f:
-            json.dump(self.security_policies, f)
 
         import logging
         logging.disable(logging.CRITICAL)

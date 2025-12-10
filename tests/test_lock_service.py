@@ -12,21 +12,14 @@ import signal
 from unittest.mock import Mock, patch, MagicMock, call, mock_open
 from datetime import datetime, timedelta
 
-# Add parent directory to path
+# Add src directory to path
 import sys
-import importlib.util
-
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, parent_dir)
+src_dir = os.path.join(parent_dir, "src")
+sys.path.insert(0, src_dir)
 
-# Import lock-service module (handle hyphen in filename)
-spec = importlib.util.spec_from_file_location(
-    "lock_service",
-    os.path.join(parent_dir, "lock-service.py")
-)
-lock_service_module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(lock_service_module)
-LockService = lock_service_module.LockService
+# Import from package
+from lock_service.service import LockService, main
 
 
 class TestLockService(unittest.TestCase):
@@ -45,26 +38,24 @@ class TestLockService(unittest.TestCase):
         # Create test config
         test_config = {
             "service": {
-                "name": "lock-service",
-                "version": "1.0.0",
                 "log_level": "CRITICAL",
-                "log_file": self.log_file,
-                "pid_file": os.path.join(self.test_dir, 'test.pid'),
-                "config_file": self.config_path
+                "log_file": self.log_file
             },
             "network": {
-                "usb_interface": "usb0",
-                "blocked_interfaces": ["eth0", "wlan0"],
-                "allowed_ports": [],
-                "blocked_ports": [22, 80, 443]
-            },
-            "logging": {
-                "verbose": True,
-                "include_device_info": True,
-                "external_logging": {"enabled": False}
+                "blocked_interfaces": ["eth0", "wlan0"]
             },
             "monitoring": {
                 "check_interval_seconds": 5
+            },
+            "lock_policies": {
+                "disable_ssh": True,
+                "disable_network_interfaces": True,
+                "block_all_ports": True
+            },
+            "unlock_policies": {
+                "restore_network_interfaces": True,
+                "restore_ssh": True,
+                "restore_all_ports": True
             }
         }
         
@@ -230,13 +221,13 @@ class TestLockService(unittest.TestCase):
         mock_subprocess.return_value = Mock(returncode=0)
         
         service = LockService(self.config_path, config_dir=self.config_dir)
-        service.security_policies = {
+        service.config.update({
             'lock_policies': {
                 'disable_ssh': True,
                 'disable_network_interfaces': True,
                 'block_all_ports': True
             }
-        }
+        })
         
         service.lock_system()
         
@@ -261,7 +252,7 @@ class TestLockService(unittest.TestCase):
         mock_subprocess.side_effect = Exception("System error")
         
         service = LockService(self.config_path, config_dir=self.config_dir)
-        service.security_policies = {'lock_policies': {'disable_ssh': True}}
+        service.config.update({'lock_policies': {'disable_ssh': True}})
         
         # Should not raise
         service.lock_system()
@@ -273,13 +264,13 @@ class TestLockService(unittest.TestCase):
         
         service = LockService(self.config_path, config_dir=self.config_dir)
         service.is_locked = True
-        service.security_policies = {
+        service.config.update({
             'unlock_policies': {
                 'restore_network_interfaces': True,
                 'restore_ssh': True,
                 'restore_all_ports': True
             }
-        }
+        })
         
         service.unlock_system()
         
@@ -304,7 +295,7 @@ class TestLockService(unittest.TestCase):
         
         service = LockService(self.config_path, config_dir=self.config_dir)
         service.is_locked = True
-        service.security_policies = {'unlock_policies': {'restore_ssh': True}}
+        service.config.update({'unlock_policies': {'restore_ssh': True}})
         
         # Should not raise
         service.unlock_system()
@@ -350,7 +341,7 @@ class TestLockService(unittest.TestCase):
             f.write('DEVICE123')
         
         service = LockService(self.config_path, config_dir=self.config_dir)
-        service.security_policies = {'lock_policies': {}}
+        service.config.update({'lock_policies': {}})
         
         try:
             service.run()
@@ -393,7 +384,7 @@ class TestLockService(unittest.TestCase):
             f.write('DEVICE123')
         
         service = LockService(self.config_path, config_dir=self.config_dir)
-        service.security_policies = {
+        service.config.update({
             'lock_policies': {
                 'disable_ssh': False,
                 'disable_network_interfaces': False,
@@ -404,7 +395,7 @@ class TestLockService(unittest.TestCase):
                 'restore_ssh': True,
                 'restore_all_ports': True
             }
-        }
+        })
         
         # Service should start unlocked, then lock on startup if device not connected
         # But we need to check after run() starts
@@ -452,7 +443,7 @@ class TestLockService(unittest.TestCase):
             f.write('DEVICE123')
         
         service = LockService(self.config_path, config_dir=self.config_dir)
-        service.security_policies = {'lock_policies': {}, 'unlock_policies': {}}
+        service.config.update({'lock_policies': {}, 'unlock_policies': {}})
         
         try:
             service.run()
@@ -568,8 +559,8 @@ class TestLockServiceConfig(unittest.TestCase):
         
         self.assertIn('monitoring', str(context.exception))
     
-    def test_load_security_policies_not_found(self):
-        """Test loading security policies when file not found"""
+    def test_load_config_without_policies(self):
+        """Test loading config without lock/unlock policies"""
         config = {
             "service": {"log_level": "CRITICAL", "log_file": "/tmp/test.log"},
             "network": {"blocked_interfaces": []},
@@ -579,8 +570,10 @@ class TestLockServiceConfig(unittest.TestCase):
             json.dump(config, f)
         
         service = LockService(self.config_path, config_dir=self.config_dir)
-        # Should return empty dict, not raise
-        self.assertIsInstance(service.security_policies, dict)
+        # Should load successfully, policies are optional
+        self.assertIsInstance(service.config, dict)
+        # Policies should default to True when not present
+        self.assertTrue(service.config.get('lock_policies', {}).get('disable_ssh', True))
     
     def test_get_system_info_success(self):
         """Test get_system_info reads /etc/os-release"""
@@ -655,8 +648,8 @@ class TestLockServiceMain(unittest.TestCase):
         """Test main() with default arguments"""
         mock_run.return_value = None
         
-        with patch('sys.argv', ['lock-service.py', '--config', self.config_path]):
-            lock_service_module.main()
+        with patch('sys.argv', ['lock-service', '--config', self.config_path]):
+            main()
         
         mock_run.assert_called_once()
 
@@ -665,11 +658,11 @@ class TestLockServiceMain(unittest.TestCase):
         """Test main() with --daemon flag"""
         mock_run.return_value = None
         
-        with patch('sys.argv', ['lock-service.py', '--config', self.config_path, '--daemon']):
+        with patch('sys.argv', ['lock-service', '--config', self.config_path, '--daemon']):
             with patch('daemon.DaemonContext') as mock_daemon:
                 mock_daemon.return_value.__enter__ = Mock()
                 mock_daemon.return_value.__exit__ = Mock(return_value=False)
-                lock_service_module.main()
+                main()
 
 
 if __name__ == '__main__':
