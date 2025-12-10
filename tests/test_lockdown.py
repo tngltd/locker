@@ -36,8 +36,6 @@ class TestSystemLockdown(unittest.TestCase):
         os.makedirs(self.log_dir, exist_ok=True)
 
         self.config_path = os.path.join(self.config_dir, 'config.json')
-        self.device_id_file = os.path.join(self.config_dir, 'device_id')
-        self.auth_file = os.path.join(self.config_dir, 'auth_data.json')
         self.log_file = os.path.join(self.log_dir, 'lock-service.log')
 
         self.default_config = {
@@ -49,25 +47,11 @@ class TestSystemLockdown(unittest.TestCase):
                 "pid_file": "/var/run/lock-service.pid",
                 "config_file": self.config_path
             },
-            "security": {
-                "max_pin_attempts": 3,
-                "lockout_duration_minutes": 15,
-                "recovery_code_expiry_hours": 48,
-                "challenge_timeout_seconds": 30,
-                "device_id_length": 12,
-                "pin_length": 4
-            },
             "network": {
                 "usb_interface": "usb0",
                 "blocked_interfaces": ["eth0", "wlan0"],
                 "allowed_ports": [],
                 "blocked_ports": [22]
-            },
-            "authentication": {
-                "enabled": True,
-                "require_physical_presence": True,
-                "admin_override_enabled": True,
-                "emergency_recovery_enabled": True
             },
             "monitoring": {
                 "check_interval_seconds": 1
@@ -112,7 +96,7 @@ class TestSystemLockdown(unittest.TestCase):
     @patch('subprocess.run')
     def test_lock_system_disables_ssh(self, mock_subprocess):
         """Test that lock_system disables SSH"""
-        service = LockService(self.config_path, device_id_file=self.device_id_file, auth_file=self.auth_file)
+        service = LockService(self.config_path, config_dir=self.config_dir)
         service.is_locked = False
         
         service.lock_system()
@@ -135,7 +119,7 @@ class TestSystemLockdown(unittest.TestCase):
     @patch('subprocess.run')
     def test_lock_system_disables_network_interfaces(self, mock_subprocess):
         """Test that lock_system disables network interfaces"""
-        service = LockService(self.config_path, device_id_file=self.device_id_file, auth_file=self.auth_file)
+        service = LockService(self.config_path, config_dir=self.config_dir)
         service.is_locked = False
         
         service.lock_system()
@@ -155,7 +139,7 @@ class TestSystemLockdown(unittest.TestCase):
     @patch('subprocess.run')
     def test_lock_system_blocks_ports(self, mock_subprocess):
         """Test that lock_system blocks ports with iptables"""
-        service = LockService(self.config_path, device_id_file=self.device_id_file, auth_file=self.auth_file)
+        service = LockService(self.config_path, config_dir=self.config_dir)
         service.is_locked = False
         
         service.lock_system()
@@ -173,7 +157,7 @@ class TestSystemLockdown(unittest.TestCase):
     @patch('subprocess.run')
     def test_lock_system_idempotent(self, mock_subprocess):
         """Test that lock_system is idempotent"""
-        service = LockService(self.config_path, device_id_file=self.device_id_file, auth_file=self.auth_file)
+        service = LockService(self.config_path, config_dir=self.config_dir)
         service.is_locked = True
         
         initial_call_count = len(mock_subprocess.call_args_list)
@@ -185,7 +169,7 @@ class TestSystemLockdown(unittest.TestCase):
     @patch('subprocess.run')
     def test_unlock_system_restores_network_interfaces(self, mock_subprocess):
         """Test that unlock_system restores network interfaces"""
-        service = LockService(self.config_path, device_id_file=self.device_id_file, auth_file=self.auth_file)
+        service = LockService(self.config_path, config_dir=self.config_dir)
         service.is_locked = True
         
         service.unlock_system()
@@ -207,7 +191,7 @@ class TestSystemLockdown(unittest.TestCase):
     @patch('subprocess.run')
     def test_unlock_system_restores_ssh(self, mock_subprocess):
         """Test that unlock_system restores SSH"""
-        service = LockService(self.config_path, device_id_file=self.device_id_file, auth_file=self.auth_file)
+        service = LockService(self.config_path, config_dir=self.config_dir)
         service.is_locked = True
         
         service.unlock_system()
@@ -220,7 +204,7 @@ class TestSystemLockdown(unittest.TestCase):
     @patch('subprocess.run')
     def test_unlock_system_clears_iptables(self, mock_subprocess):
         """Test that unlock_system clears iptables rules"""
-        service = LockService(self.config_path, device_id_file=self.device_id_file, auth_file=self.auth_file)
+        service = LockService(self.config_path, config_dir=self.config_dir)
         service.is_locked = True
         
         service.unlock_system()
@@ -240,22 +224,9 @@ class TestSystemLockdown(unittest.TestCase):
         self.assertTrue(delete_found, "iptables -X not called")
 
     @patch('subprocess.run')
-    def test_unlock_system_resets_auth_state(self, mock_subprocess):
-        """Test that unlock_system resets authentication state"""
-        service = LockService(self.config_path, device_id_file=self.device_id_file, auth_file=self.auth_file)
-        service.is_locked = True
-        service.failed_attempts = 3
-        service.lockout_until = datetime.now()
-        
-        service.unlock_system()
-        
-        self.assertEqual(service.failed_attempts, 0)
-        self.assertIsNone(service.lockout_until)
-
-    @patch('subprocess.run')
     def test_unlock_system_idempotent(self, mock_subprocess):
         """Test that unlock_system is idempotent"""
-        service = LockService(self.config_path, device_id_file=self.device_id_file, auth_file=self.auth_file)
+        service = LockService(self.config_path, config_dir=self.config_dir)
         service.is_locked = False
         
         initial_call_count = len(mock_subprocess.call_args_list)
@@ -267,7 +238,7 @@ class TestSystemLockdown(unittest.TestCase):
     @patch('subprocess.run')
     def test_lock_unlock_cycle(self, mock_subprocess):
         """Test a complete lock/unlock cycle"""
-        service = LockService(self.config_path, device_id_file=self.device_id_file, auth_file=self.auth_file)
+        service = LockService(self.config_path, config_dir=self.config_dir)
         
         # Lock
         service.lock_system()

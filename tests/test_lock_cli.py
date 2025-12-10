@@ -30,10 +30,11 @@ class TestLockCLI(unittest.TestCase):
         """Set up test fixtures"""
         self.test_dir = tempfile.mkdtemp()
         self.config_path = os.path.join(self.test_dir, 'config.json')
-        self.auth_file = os.path.join(self.test_dir, 'auth_data.json')
-        self.device_id_file = os.path.join(self.test_dir, 'device_id')
+        self.config_dir = os.path.join(self.test_dir, 'config')
         self.pid_file = os.path.join(self.test_dir, 'lock-service.pid')
         self.log_file = os.path.join(self.test_dir, 'lock-service.log')
+        
+        os.makedirs(self.config_dir, exist_ok=True)
         
         # Create test config
         test_config = {
@@ -52,27 +53,26 @@ class TestLockCLI(unittest.TestCase):
         # Create CLI instance with test paths
         self.cli = LockCLI()
         self.cli.config_path = self.config_path
-        self.cli.auth_file = self.auth_file
-        self.cli.device_id_file = self.device_id_file
+        self.cli.config_dir = self.config_dir
         self.cli.service_pid_file = self.pid_file
     
     def tearDown(self):
         """Clean up test fixtures"""
         shutil.rmtree(self.test_dir, ignore_errors=True)
     
-    def test_get_device_id_existing(self):
-        """Test getting existing device ID"""
-        os.makedirs(os.path.dirname(self.device_id_file), exist_ok=True)
-        with open(self.device_id_file, 'w') as f:
-            f.write("TEST123456")
+    def test_get_android_serial_existing(self):
+        """Test getting existing Android serial"""
+        serial_file = os.path.join(self.config_dir, 'android_serial')
+        with open(serial_file, 'w') as f:
+            f.write("DEVICE123456")
         
-        device_id = self.cli.get_device_id()
-        self.assertEqual(device_id, "TEST123456")
+        serial = self.cli.get_android_serial()
+        self.assertEqual(serial, "DEVICE123456")
     
-    def test_get_device_id_not_found(self):
-        """Test getting device ID when file doesn't exist"""
-        device_id = self.cli.get_device_id()
-        self.assertEqual(device_id, "UNKNOWN")
+    def test_get_android_serial_not_found(self):
+        """Test getting Android serial when file doesn't exist"""
+        serial = self.cli.get_android_serial()
+        self.assertIsNone(serial)
     
     def test_is_service_running_true(self):
         """Test service running check when PID file exists and process is running"""
@@ -118,35 +118,10 @@ class TestLockCLI(unittest.TestCase):
             self.cli.stop_service()
             mock_subprocess.assert_called_once()
     
-    def test_status_no_auth_file(self):
-        """Test status when auth file doesn't exist"""
+    def test_status_no_device_configured(self):
+        """Test status when no device is configured"""
         with patch.object(self.cli, 'is_service_running', return_value=False):
-            with patch.object(self.cli, 'get_device_id', return_value="TEST123"):
-                output = []
-                original_print = print
-                def mock_print(*args, **kwargs):
-                    output.append(' '.join(str(a) for a in args))
-                
-                with patch('builtins.print', side_effect=mock_print):
-                    self.cli.status()
-                
-                status_text = ' '.join(output)
-                self.assertIn("Service running: No", status_text)
-                self.assertIn("PIN configured: No", status_text)
-    
-    def test_status_with_auth_file(self):
-        """Test status when auth file exists"""
-        os.makedirs(os.path.dirname(self.auth_file), exist_ok=True)
-        auth_data = {
-            'pin_hash': 'test_hash',
-            'failed_attempts': 2,
-            'lockout_until': None
-        }
-        with open(self.auth_file, 'w') as f:
-            json.dump(auth_data, f)
-        
-        with patch.object(self.cli, 'is_service_running', return_value=True):
-            with patch.object(self.cli, 'get_device_id', return_value="TEST123"):
+            with patch.object(self.cli, 'get_android_serial', return_value=None):
                 output = []
                 def mock_print(*args, **kwargs):
                     output.append(' '.join(str(a) for a in args))
@@ -160,127 +135,75 @@ class TestLockCLI(unittest.TestCase):
                         self.cli.status()
                 
                 status_text = ' '.join(output)
-                self.assertIn("Service running: Yes", status_text)
-                self.assertIn("PIN configured: Yes", status_text)
-                self.assertIn("Failed attempts: 2", status_text)
+                self.assertIn("Service running: No", status_text)
+                self.assertIn("Not configured", status_text)
     
-    @patch('getpass.getpass')
-    @patch('builtins.input')
-    def test_setup_new_config(self, mock_input, mock_getpass):
-        """Test setup with new configuration"""
-        mock_getpass.side_effect = ["1234", "1234"]
-        # Don't call input if auth file doesn't exist
-        if not os.path.exists(self.auth_file):
-            mock_input.return_value = "n"
-        else:
-            mock_input.return_value = "y"  # Reconfigure if exists
-        
-        with patch.object(self.cli, 'get_device_id', return_value="UNKNOWN"):
-            self.cli.setup()
-        
-        # Verify auth file was created
-        self.assertTrue(os.path.exists(self.auth_file))
-        with open(self.auth_file, 'r') as f:
-            auth_data = json.load(f)
-            self.assertIsNotNone(auth_data.get('pin_hash'))
-            self.assertIsNotNone(auth_data.get('recovery_code'))
-            self.assertTrue(auth_data['recovery_code'].startswith('REC-'))
+    def test_status_with_device_configured(self):
+        """Test status when device is configured"""
+        with patch.object(self.cli, 'is_service_running', return_value=True):
+            with patch.object(self.cli, 'get_android_serial', return_value="DEVICE123"):
+                with patch.object(self.cli, 'get_connected_devices', return_value=[("DEVICE123", "Test Device")]):
+                    output = []
+                    def mock_print(*args, **kwargs):
+                        output.append(' '.join(str(a) for a in args))
+                    
+                    with patch('builtins.print', side_effect=mock_print):
+                        with patch('subprocess.run') as mock_subprocess:
+                            mock_subprocess.return_value = Mock(
+                                returncode=0,
+                                stdout="Chain INPUT (policy ACCEPT)"
+                            )
+                            self.cli.status()
+                    
+                    status_text = ' '.join(output)
+                    self.assertIn("Service running: Yes", status_text)
+                    self.assertIn("DEVICE123", status_text)
+                    self.assertIn("CONNECTED", status_text)
     
-    @patch('getpass.getpass')
     @patch('builtins.input')
-    def test_setup_pin_validation(self, mock_input, mock_getpass):
-        """Test setup with invalid PIN"""
-        # Simulate invalid PIN then valid one
-        call_count = [0]
-        def getpass_side_effect(prompt):
-            call_count[0] += 1
-            if call_count[0] == 1:
-                return "12"  # Too short
-            elif call_count[0] == 2:
-                return "1234"  # Valid
-            else:
-                return "1234"  # Confirm
+    def test_setup_new_config(self, mock_input):
+        """Test setup with new configuration - select device from list"""
+        mock_input.side_effect = ["1", "n"]  # Select first device, don't reconfigure
         
-        mock_getpass.side_effect = getpass_side_effect
-        mock_input.return_value = "n"
-        
-        with patch.object(self.cli, 'get_device_id', return_value="UNKNOWN"):
-            self.cli.setup()
-        
-        # Should eventually succeed with valid PIN
-        self.assertGreater(call_count[0], 2)
+        with patch.object(self.cli, 'get_connected_devices', return_value=[("DEVICE123", "Test Device")]):
+            with patch.object(self.cli, 'save_android_serial') as mock_save:
+                self.cli.setup()
+                mock_save.assert_called_once_with("DEVICE123")
     
-    @patch('getpass.getpass')
-    @patch('builtins.input')
-    def test_change_pin(self, mock_input, mock_getpass):
-        """Test changing PIN"""
-        # Create existing auth file
-        os.makedirs(os.path.dirname(self.auth_file), exist_ok=True)
-        auth_data = {
-            'pin_hash': 'old_hash',
-            'failed_attempts': 0,
-            'lockout_until': None
-        }
-        with open(self.auth_file, 'w') as f:
-            json.dump(auth_data, f)
-        
-        mock_getpass.side_effect = ["1234", "5678", "5678"]  # current, new, confirm
-        mock_input.return_value = "n"
-        
-        with patch.object(self.cli, 'get_device_id', return_value="TEST123"):
-            self.cli.change_pin()
-        
-        # Verify PIN was updated
-        with open(self.auth_file, 'r') as f:
-            updated_data = json.load(f)
-            self.assertNotEqual(updated_data['pin_hash'], 'old_hash')
-            self.assertEqual(updated_data['failed_attempts'], 0)
+    
     
     @patch('builtins.input')
     def test_emergency_unlock_success(self, mock_input):
-        """Test emergency unlock with valid recovery code"""
-        # Create auth file with recovery code
-        os.makedirs(os.path.dirname(self.auth_file), exist_ok=True)
-        recovery_code = "REC-TEST1234-TEST5678"
-        auth_data = {
-            'pin_hash': 'test_hash',
-            'recovery_code': recovery_code,
-            'failed_attempts': 3,
-            'lockout_until': None
-        }
-        with open(self.auth_file, 'w') as f:
-            json.dump(auth_data, f)
-        
-        mock_input.return_value = recovery_code
+        """Test emergency unlock - manual unlock without device"""
+        mock_input.return_value = "yes"
         
         with patch('subprocess.run') as mock_subprocess:
             mock_subprocess.return_value = Mock(returncode=0)
-            self.cli.emergency_unlock()
-        
-        # Verify new recovery code was generated
-        with open(self.auth_file, 'r') as f:
-            updated_data = json.load(f)
-            self.assertNotEqual(updated_data['recovery_code'], recovery_code)
-            self.assertEqual(updated_data['failed_attempts'], 0)
+            with patch.object(self.cli, 'load_config', return_value={'network': {'blocked_interfaces': ['eth0']}}):
+                output = []
+                def mock_print(*args, **kwargs):
+                    output.append(' '.join(str(a) for a in args))
+                
+                with patch('builtins.print', side_effect=mock_print):
+                    self.cli.emergency_unlock()
+                
+                output_text = ' '.join(output)
+                self.assertIn("unlocked successfully", output_text.lower())
     
     @patch('builtins.input')
-    def test_emergency_unlock_invalid_code(self, mock_input):
-        """Test emergency unlock with invalid recovery code"""
-        os.makedirs(os.path.dirname(self.auth_file), exist_ok=True)
-        auth_data = {
-            'recovery_code': 'REC-VALID-CODE'
-        }
-        with open(self.auth_file, 'w') as f:
-            json.dump(auth_data, f)
+    def test_emergency_unlock_cancelled(self, mock_input):
+        """Test emergency unlock when user cancels"""
+        mock_input.return_value = "no"
         
-        mock_input.return_value = "WRONG-CODE"
+        output = []
+        def mock_print(*args, **kwargs):
+            output.append(' '.join(str(a) for a in args))
         
-        self.cli.emergency_unlock()
+        with patch('builtins.print', side_effect=mock_print):
+            self.cli.emergency_unlock()
         
-        # Verify recovery code wasn't changed
-        with open(self.auth_file, 'r') as f:
-            data = json.load(f)
-            self.assertEqual(data['recovery_code'], 'REC-VALID-CODE')
+        output_text = ' '.join(output)
+        self.assertIn("Cancelled", output_text)
     
     def test_logs_file_not_found(self):
         """Test logs command when log file doesn't exist"""
@@ -323,6 +246,283 @@ class TestLockCLI(unittest.TestCase):
                 config = self.cli.load_config()
             except SystemExit:
                 pass
+
+
+class TestLockCLIEdgeCases(unittest.TestCase):
+    """Test edge cases for LockCLI"""
+    
+    def setUp(self):
+        """Set up test fixtures"""
+        self.test_dir = tempfile.mkdtemp()
+        self.config_path = os.path.join(self.test_dir, 'config.json')
+        self.config_dir = os.path.join(self.test_dir, 'config')
+        self.pid_file = os.path.join(self.test_dir, 'lock-service.pid')
+        self.log_file = os.path.join(self.test_dir, 'lock-service.log')
+        
+        os.makedirs(self.config_dir, exist_ok=True)
+        
+        test_config = {
+            "service": {
+                "name": "lock-service",
+                "log_file": self.log_file
+            },
+            "network": {
+                "blocked_interfaces": ["eth0", "wlan0"]
+            }
+        }
+        
+        with open(self.config_path, 'w') as f:
+            json.dump(test_config, f)
+        
+        self.cli = LockCLI()
+        self.cli.config_path = self.config_path
+        self.cli.config_dir = self.config_dir
+        self.cli.service_pid_file = self.pid_file
+    
+    def tearDown(self):
+        """Clean up test fixtures"""
+        shutil.rmtree(self.test_dir, ignore_errors=True)
+
+    @patch('subprocess.run')
+    def test_start_service_called_process_error(self, mock_subprocess):
+        """Test start_service when subprocess fails"""
+        import subprocess
+        mock_subprocess.side_effect = subprocess.CalledProcessError(1, 'systemctl')
+        
+        with patch.object(self.cli, 'is_service_running', return_value=False):
+            output = []
+            with patch('builtins.print', side_effect=lambda *a, **kw: output.append(' '.join(str(x) for x in a))):
+                self.cli.start_service()
+            
+            self.assertTrue(any('Failed to start' in o for o in output))
+
+    @patch('subprocess.run')
+    def test_start_service_file_not_found(self, mock_subprocess):
+        """Test start_service when systemctl not found"""
+        mock_subprocess.side_effect = FileNotFoundError()
+        
+        with patch.object(self.cli, 'is_service_running', return_value=False):
+            output = []
+            with patch('builtins.print', side_effect=lambda *a, **kw: output.append(' '.join(str(x) for x in a))):
+                self.cli.start_service()
+            
+            self.assertTrue(any('systemctl not found' in o for o in output))
+
+    @patch('subprocess.run')
+    def test_stop_service_called_process_error(self, mock_subprocess):
+        """Test stop_service when subprocess fails"""
+        import subprocess
+        mock_subprocess.side_effect = subprocess.CalledProcessError(1, 'systemctl')
+        
+        with patch.object(self.cli, 'is_service_running', return_value=True):
+            output = []
+            with patch('builtins.print', side_effect=lambda *a, **kw: output.append(' '.join(str(x) for x in a))):
+                self.cli.stop_service()
+            
+            self.assertTrue(any('Failed to stop' in o for o in output))
+
+    @patch('subprocess.run')
+    def test_stop_service_file_not_found(self, mock_subprocess):
+        """Test stop_service when systemctl not found"""
+        mock_subprocess.side_effect = FileNotFoundError()
+        
+        with patch.object(self.cli, 'is_service_running', return_value=True):
+            output = []
+            with patch('builtins.print', side_effect=lambda *a, **kw: output.append(' '.join(str(x) for x in a))):
+                self.cli.stop_service()
+            
+            self.assertTrue(any('systemctl not found' in o for o in output))
+
+    @patch('time.sleep')
+    def test_restart_service(self, mock_sleep):
+        """Test restart_service calls stop and start"""
+        with patch.object(self.cli, 'stop_service') as mock_stop:
+            with patch.object(self.cli, 'start_service') as mock_start:
+                self.cli.restart_service()
+                
+                mock_stop.assert_called_once()
+                mock_start.assert_called_once()
+
+    def test_status_with_iptables_drop(self):
+        """Test status shows LOCKED when iptables has DROP"""
+        with patch.object(self.cli, 'is_service_running', return_value=True):
+            with patch.object(self.cli, 'get_android_serial', return_value="DEVICE123"):
+                with patch.object(self.cli, 'get_connected_devices', return_value=[]):
+                    output = []
+                    with patch('builtins.print', side_effect=lambda *a, **kw: output.append(' '.join(str(x) for x in a))):
+                        with patch('subprocess.run') as mock_subprocess:
+                            mock_subprocess.return_value = Mock(returncode=0, stdout="DROP all")
+                            self.cli.status()
+                    
+                    status_text = ' '.join(output)
+                    self.assertIn("LOCKED", status_text)
+
+    def test_status_iptables_exception(self):
+        """Test status handles iptables exception"""
+        with patch.object(self.cli, 'is_service_running', return_value=False):
+            with patch.object(self.cli, 'get_android_serial', return_value=None):
+                output = []
+                with patch('builtins.print', side_effect=lambda *a, **kw: output.append(' '.join(str(x) for x in a))):
+                    with patch('subprocess.run', side_effect=Exception()):
+                        self.cli.status()
+                
+                status_text = ' '.join(output)
+                self.assertIn("Unknown", status_text)
+
+    @patch('builtins.input')
+    def test_setup_reconfigure_declined(self, mock_input):
+        """Test setup when user declines reconfigure"""
+        serial_file = os.path.join(self.config_dir, 'android_serial')
+        with open(serial_file, 'w') as f:
+            f.write('EXISTING_DEVICE')
+        
+        mock_input.return_value = 'n'
+        
+        with patch.object(self.cli, 'get_connected_devices', return_value=[("NEW_DEVICE", "New Device")]):
+            self.cli.setup()
+        
+        # Should not have changed the serial
+        with open(serial_file, 'r') as f:
+            self.assertEqual(f.read().strip(), 'EXISTING_DEVICE')
+
+    @patch('builtins.input')
+    @patch('subprocess.run')
+    def test_emergency_unlock_exception(self, mock_subprocess, mock_input):
+        """Test emergency_unlock handles exception"""
+        mock_input.return_value = "yes"
+        mock_subprocess.side_effect = Exception("Error")
+        
+        output = []
+        with patch('builtins.print', side_effect=lambda *a, **kw: output.append(' '.join(str(x) for x in a))):
+            with patch.object(self.cli, 'load_config', return_value={'network': {'blocked_interfaces': []}}):
+                self.cli.emergency_unlock()
+        
+        self.assertTrue(any('Error' in o for o in output))
+
+    def test_logs_load_config_exception(self):
+        """Test logs when load_config raises exception"""
+        self.cli.config_path = '/nonexistent/config.json'
+        
+        output = []
+        with patch('builtins.print', side_effect=lambda *a, **kw: output.append(' '.join(str(x) for x in a))):
+            self.cli.logs()
+        
+        self.assertTrue(any('No log file' in o for o in output))
+
+    @patch('subprocess.run')
+    def test_logs_tail_fallback(self, mock_subprocess):
+        """Test logs falls back to reading file when tail fails"""
+        os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
+        with open(self.log_file, 'w') as f:
+            f.write("Log line 1\nLog line 2\nLog line 3\n")
+        
+        mock_subprocess.side_effect = FileNotFoundError()
+        
+        output = []
+        with patch('builtins.print', side_effect=lambda *a, **kw: output.append(' '.join(str(x) for x in a))):
+            with patch.object(self.cli, 'load_config', return_value={'service': {'log_file': self.log_file}}):
+                self.cli.logs(2)
+        
+        self.assertTrue(any('Log line' in o for o in output))
+
+
+
+class TestLockCLIMain(unittest.TestCase):
+    """Test cases for main() function"""
+    
+    def setUp(self):
+        """Set up test fixtures"""
+        self.test_dir = tempfile.mkdtemp()
+        self.config_path = os.path.join(self.test_dir, 'config.json')
+        
+        test_config = {
+            "service": {"name": "lock-service", "log_file": "/tmp/test.log"},
+            "network": {"blocked_interfaces": ["eth0"]}
+        }
+        
+        with open(self.config_path, 'w') as f:
+            json.dump(test_config, f)
+    
+    def tearDown(self):
+        """Clean up test fixtures"""
+        shutil.rmtree(self.test_dir, ignore_errors=True)
+
+    def test_main_no_command(self):
+        """Test main() with no command shows help"""
+        with patch('sys.argv', ['lock-cli.py']):
+            with patch.object(LockCLI, 'status') as mock_status:
+                lock_cli_module.main()
+                mock_status.assert_not_called()
+
+    def test_main_setup_command(self):
+        """Test main() with setup command"""
+        with patch('sys.argv', ['lock-cli.py', 'setup']):
+            with patch.object(LockCLI, 'setup') as mock_setup:
+                lock_cli_module.main()
+                mock_setup.assert_called_once()
+
+    def test_main_start_command(self):
+        """Test main() with start command"""
+        with patch('sys.argv', ['lock-cli.py', 'start']):
+            with patch.object(LockCLI, 'start_service') as mock_start:
+                lock_cli_module.main()
+                mock_start.assert_called_once()
+
+    def test_main_stop_command(self):
+        """Test main() with stop command"""
+        with patch('sys.argv', ['lock-cli.py', 'stop']):
+            with patch.object(LockCLI, 'stop_service') as mock_stop:
+                lock_cli_module.main()
+                mock_stop.assert_called_once()
+
+    def test_main_restart_command(self):
+        """Test main() with restart command"""
+        with patch('sys.argv', ['lock-cli.py', 'restart']):
+            with patch.object(LockCLI, 'restart_service') as mock_restart:
+                lock_cli_module.main()
+                mock_restart.assert_called_once()
+
+    def test_main_status_command(self):
+        """Test main() with status command"""
+        with patch('sys.argv', ['lock-cli.py', 'status']):
+            with patch.object(LockCLI, 'status') as mock_status:
+                lock_cli_module.main()
+                mock_status.assert_called_once()
+
+    def test_main_emergency_unlock_command(self):
+        """Test main() with emergency-unlock command"""
+        with patch('sys.argv', ['lock-cli.py', 'emergency-unlock']):
+            with patch.object(LockCLI, 'emergency_unlock') as mock_unlock:
+                lock_cli_module.main()
+                mock_unlock.assert_called_once()
+
+    def test_main_logs_command(self):
+        """Test main() with logs command"""
+        with patch('sys.argv', ['lock-cli.py', 'logs']):
+            with patch.object(LockCLI, 'logs') as mock_logs:
+                lock_cli_module.main()
+                mock_logs.assert_called_once_with(50)
+
+    def test_main_logs_command_with_lines(self):
+        """Test main() with logs command and line count"""
+        with patch('sys.argv', ['lock-cli.py', 'logs', '-n', '100']):
+            with patch.object(LockCLI, 'logs') as mock_logs:
+                lock_cli_module.main()
+                mock_logs.assert_called_once_with(100)
+
+    def test_main_list_devices_command(self):
+        """Test main() with list-devices command"""
+        with patch('sys.argv', ['lock-cli.py', 'list-devices']):
+            with patch.object(LockCLI, 'list_devices') as mock_list:
+                lock_cli_module.main()
+                mock_list.assert_called_once()
+    
+    def test_main_clear_config_command(self):
+        """Test main() with clear-config command"""
+        with patch('sys.argv', ['lock-cli.py', 'clear-config']):
+            with patch.object(LockCLI, 'clear_config') as mock_clear:
+                lock_cli_module.main()
+                mock_clear.assert_called_once()
 
 
 if __name__ == '__main__':

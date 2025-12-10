@@ -8,22 +8,16 @@ import os
 import sys
 import json
 import argparse
-import getpass
-import hashlib
-import hmac
 import subprocess
 import time
-import uuid
-from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 
 class LockCLI:
     def __init__(self):
         self.config_path = "/etc/lock-service/config.json"
-        self.auth_file = "/etc/lock-service/auth_data.json"
-        self.device_id_file = "/etc/lock-service/device_id"
+        self.config_dir = "/etc/lock-service"
         self.service_pid_file = "/var/run/lock-service.pid"
     
     def load_config(self) -> dict:
@@ -32,16 +26,63 @@ class LockCLI:
             with open(self.config_path, 'r') as f:
                 return json.load(f)
         except FileNotFoundError:
-            print("Error: Configuration file not found. Run 'lock-cli setup' first.")
+            print("Error: Configuration file not found.")
             sys.exit(1)
     
-    def get_device_id(self) -> str:
-        """Get device ID"""
+    def get_android_serial(self) -> Optional[str]:
+        """Get configured Android device serial"""
         try:
-            with open(self.device_id_file, 'r') as f:
-                return f.read().strip()
+            serial_file = os.path.join(self.config_dir, 'android_serial')
+            if os.path.exists(serial_file):
+                with open(serial_file, 'r') as f:
+                    return f.read().strip()
+        except Exception:
+            pass
+        return None
+    
+    def save_android_serial(self, serial: str):
+        """Save Android device serial"""
+        os.makedirs(self.config_dir, exist_ok=True)
+        serial_file = os.path.join(self.config_dir, 'android_serial')
+        with open(serial_file, 'w') as f:
+            f.write(serial)
+        os.chmod(serial_file, 0o600)
+    
+    def get_connected_devices(self) -> List[tuple]:
+        """Get list of connected Android devices (serial, model)"""
+        devices = []
+        try:
+            result = subprocess.run(
+                ['adb', 'devices', '-l'],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            if result.returncode != 0:
+                return devices
+            
+            lines = result.stdout.strip().split('\n')
+            for line in lines[1:]:  # Skip "List of devices attached"
+                if line.strip() and 'device' in line and 'offline' not in line:
+                    parts = line.split()
+                    if parts:
+                        serial = parts[0]
+                        # Try to extract model info
+                        model = "Unknown"
+                        for part in parts:
+                            if part.startswith('model:'):
+                                model = part.replace('model:', '')
+                                break
+                        devices.append((serial, model))
         except FileNotFoundError:
-            return "UNKNOWN"
+            print("Error: ADB not found. Please install Android Debug Bridge (adb).")
+        except subprocess.TimeoutExpired:
+            print("Error: ADB command timed out.")
+        except Exception as e:
+            print(f"Error getting connected devices: {e}")
+        
+        return devices
     
     def is_service_running(self) -> bool:
         """Check if service is running"""
@@ -91,22 +132,22 @@ class LockCLI:
         """Show service status"""
         print("=== Lock Service Status ===")
         print(f"Service running: {'Yes' if self.is_service_running() else 'No'}")
-        print(f"Device ID: {self.get_device_id()}")
         
-        # Check if PIN is set
-        try:
-            with open(self.auth_file, 'r') as f:
-                auth_data = json.load(f)
-                pin_set = bool(auth_data.get('pin_hash'))
-                failed_attempts = auth_data.get('failed_attempts', 0)
-                lockout_until = auth_data.get('lockout_until')
-                
-                print(f"PIN configured: {'Yes' if pin_set else 'No'}")
-                print(f"Failed attempts: {failed_attempts}")
-                if lockout_until:
-                    print(f"Locked out until: {lockout_until}")
-        except FileNotFoundError:
-            print("PIN configured: No")
+        # Show configured Android device
+        serial = self.get_android_serial()
+        if serial:
+            print(f"Configured Android serial: {serial}")
+            
+            # Check if device is connected
+            devices = self.get_connected_devices()
+            connected_serials = [d[0] for d in devices]
+            if serial in connected_serials:
+                print(f"Device status: CONNECTED")
+            else:
+                print(f"Device status: NOT CONNECTED")
+        else:
+            print("Configured Android serial: Not configured")
+            print("Run 'lock-cli setup' to configure a device.")
         
         # Check system lock status
         try:
@@ -120,87 +161,128 @@ class LockCLI:
             print("System status: Unknown")
     
     def setup(self):
-        """Initial setup of the lock service"""
+        """Initial setup - configure Android device"""
         print("=== Lock Service Setup ===")
+        print()
         
         # Check if already configured
-        if os.path.exists(self.auth_file):
-            response = input("Service already configured. Reconfigure? (y/N): ")
+        current_serial = self.get_android_serial()
+        if current_serial:
+            print(f"Currently configured device: {current_serial}")
+            response = input("Reconfigure with a different device? (y/N): ")
             if response.lower() != 'y':
                 return
+            print()
         
-        # Get PIN from user
+        # Get connected devices
+        print("Scanning for connected Android devices...")
+        devices = self.get_connected_devices()
+        
+        if not devices:
+            print()
+            print("No Android devices found.")
+            print()
+            print("Please ensure:")
+            print("  1. Your Android device is connected via USB")
+            print("  2. USB debugging is enabled on the device")
+            print("  3. ADB is installed on this system")
+            print()
+            
+            # Allow manual entry
+            response = input("Enter device serial manually? (y/N): ")
+            if response.lower() == 'y':
+                serial = input("Enter Android device serial: ").strip()
+                if serial:
+                    self.save_android_serial(serial)
+                    print()
+                    print(f"Device configured: {serial}")
+                    print("The system will lock when this device is disconnected.")
+                else:
+                    print("No serial entered. Setup cancelled.")
+            return
+        
+        # Display connected devices
+        print()
+        print("Connected Android devices:")
+        print("-" * 50)
+        for i, (serial, model) in enumerate(devices, 1):
+            print(f"  {i}. {serial} ({model})")
+        print("-" * 50)
+        print()
+        
+        # Let user select a device
         while True:
-            pin = getpass.getpass("Enter 4-6 digit PIN for Android authentication: ")
-            if len(pin) < 4 or len(pin) > 6 or not pin.isdigit():
-                print("Error: PIN must be 4-6 digits.")
-                continue
-            
-            pin_confirm = getpass.getpass("Confirm PIN: ")
-            if pin != pin_confirm:
-                print("Error: PINs do not match.")
-                continue
-            
-            break
+            if len(devices) == 1:
+                response = input(f"Use device {devices[0][0]}? (Y/n): ")
+                if response.lower() != 'n':
+                    selected_serial = devices[0][0]
+                    break
+                else:
+                    print("Setup cancelled.")
+                    return
+            else:
+                try:
+                    choice = input(f"Select device (1-{len(devices)}): ")
+                    idx = int(choice) - 1
+                    if 0 <= idx < len(devices):
+                        selected_serial = devices[idx][0]
+                        break
+                    else:
+                        print("Invalid selection.")
+                except ValueError:
+                    print("Please enter a number.")
         
-        # Generate device ID if not exists
-        device_id = self.get_device_id()
-        if device_id == "UNKNOWN":
-            import uuid
-            device_id = str(uuid.uuid4()).replace('-', '')[:12].upper()
-            os.makedirs(os.path.dirname(self.device_id_file), exist_ok=True)
-            with open(self.device_id_file, 'w') as f:
-                f.write(device_id)
+        # Save the selected device
+        self.save_android_serial(selected_serial)
         
-        # Generate PIN hash and recovery code
-        salt = str(uuid.uuid4())
-        pin_hash = hashlib.sha256(f"{pin}{device_id}{salt}".encode()).hexdigest()
+        print()
+        print("=" * 50)
+        print("Setup completed successfully!")
+        print("=" * 50)
+        print()
+        print(f"Configured device: {selected_serial}")
+        print()
+        print("The system will now:")
+        print("  - UNLOCK when this Android device is connected")
+        print("  - LOCK when this Android device is disconnected")
+        print()
+        print("To start the service, run: lock-cli start")
+    
+    def list_devices(self):
+        """List all connected Android devices"""
+        print("=== Connected Android Devices ===")
         
-        import uuid
-        recovery_code = f"REC-{str(uuid.uuid4())[:8].upper()}-{str(uuid.uuid4())[:8].upper()}"
+        devices = self.get_connected_devices()
         
-        # Save authentication data
-        auth_data = {
-            'pin_hash': pin_hash,
-            'recovery_code': recovery_code,
-            'failed_attempts': 0,
-            'lockout_until': None
-        }
+        if not devices:
+            print("No Android devices found.")
+            print()
+            print("Please ensure:")
+            print("  1. Your Android device is connected via USB")
+            print("  2. USB debugging is enabled on the device")
+            print("  3. ADB is installed on this system")
+            return
         
-        os.makedirs(os.path.dirname(self.auth_file), exist_ok=True)
-        with open(self.auth_file, 'w') as f:
-            json.dump(auth_data, f, indent=2)
-        os.chmod(self.auth_file, 0o600)
+        print()
+        configured_serial = self.get_android_serial()
         
-        print(f"\nSetup completed successfully!")
-        print(f"Device ID: {device_id}")
-        print(f"Recovery code: {recovery_code}")
-        print(f"Recovery code expires in 48 hours.")
-        print(f"\nIMPORTANT: Save the recovery code in a secure location!")
-        print(f"You will need it if you lose your Android device.")
+        for serial, model in devices:
+            marker = " [CONFIGURED]" if serial == configured_serial else ""
+            print(f"  {serial} ({model}){marker}")
+        
+        print()
+        print(f"Total: {len(devices)} device(s)")
     
     def emergency_unlock(self):
-        """Emergency unlock using recovery code"""
+        """Emergency unlock - bypass device check"""
         print("=== Emergency Unlock ===")
+        print()
+        print("WARNING: This will unlock the system without the configured Android device.")
+        print()
         
-        if not os.path.exists(self.auth_file):
-            print("Error: No authentication data found. Run 'lock-cli setup' first.")
-            return
-        
-        # Load auth data
-        with open(self.auth_file, 'r') as f:
-            auth_data = json.load(f)
-        
-        recovery_code = auth_data.get('recovery_code')
-        if not recovery_code:
-            print("Error: No recovery code found.")
-            return
-        
-        # Get recovery code from user
-        entered_code = input("Enter recovery code: ").strip()
-        
-        if entered_code != recovery_code:
-            print("Error: Invalid recovery code.")
+        response = input("Are you sure you want to proceed? (yes/no): ")
+        if response.lower() != 'yes':
+            print("Cancelled.")
             return
         
         # Unlock system
@@ -210,76 +292,52 @@ class LockCLI:
             subprocess.run(['iptables', '-X'], check=False)
             
             # Restore network interfaces
-            config = self.load_config()
-            for interface in config['network']['blocked_interfaces']:
-                subprocess.run(['ip', 'link', 'set', interface, 'up'], check=False)
+            try:
+                config = self.load_config()
+                for interface in config['network']['blocked_interfaces']:
+                    subprocess.run(['ip', 'link', 'set', interface, 'up'], check=False)
+            except:
+                pass
             
             # Restore SSH
             subprocess.run(['systemctl', 'enable', 'ssh'], check=False)
             subprocess.run(['systemctl', 'start', 'ssh'], check=False)
             
-            # Reset failed attempts
-            auth_data['failed_attempts'] = 0
-            auth_data['lockout_until'] = None
-            
-            # Generate new recovery code
-            import uuid
-            new_recovery_code = f"REC-{str(uuid.uuid4())[:8].upper()}-{str(uuid.uuid4())[:8].upper()}"
-            auth_data['recovery_code'] = new_recovery_code
-            
-            with open(self.auth_file, 'w') as f:
-                json.dump(auth_data, f, indent=2)
-            
+            print()
             print("System unlocked successfully!")
-            print(f"New recovery code: {new_recovery_code}")
-            print("Recovery code expires in 48 hours.")
+            print()
+            print("NOTE: The system will lock again if the lock service is running")
+            print("      and the configured device is not connected.")
+            print()
+            print("To permanently disable locking, run: lock-cli clear-config")
             
         except Exception as e:
             print(f"Error unlocking system: {e}")
     
-    def change_pin(self):
-        """Change the PIN"""
-        print("=== Change PIN ===")
+    def clear_config(self):
+        """Clear the configured Android device"""
+        print("=== Clear Configuration ===")
         
-        if not os.path.exists(self.auth_file):
-            print("Error: No authentication data found. Run 'lock-cli setup' first.")
+        serial = self.get_android_serial()
+        if not serial:
+            print("No device is currently configured.")
             return
         
-        # Get current PIN
-        current_pin = getpass.getpass("Enter current PIN: ")
+        print(f"Currently configured device: {serial}")
+        response = input("Remove this configuration? (y/N): ")
         
-        # Verify current PIN (simplified - in real implementation would use challenge/response)
-        with open(self.auth_file, 'r') as f:
-            auth_data = json.load(f)
+        if response.lower() != 'y':
+            print("Cancelled.")
+            return
         
-        # Get new PIN
-        while True:
-            new_pin = getpass.getpass("Enter new 4-6 digit PIN: ")
-            if len(new_pin) < 4 or len(new_pin) > 6 or not new_pin.isdigit():
-                print("Error: PIN must be 4-6 digits.")
-                continue
-            
-            new_pin_confirm = getpass.getpass("Confirm new PIN: ")
-            if new_pin != new_pin_confirm:
-                print("Error: PINs do not match.")
-                continue
-            
-            break
-        
-        # Update PIN hash
-        device_id = self.get_device_id()
-        import uuid
-        salt = str(uuid.uuid4())
-        new_pin_hash = hashlib.sha256(f"{new_pin}{device_id}{salt}".encode()).hexdigest()
-        
-        auth_data['pin_hash'] = new_pin_hash
-        auth_data['failed_attempts'] = 0
-        auth_data['lockout_until'] = None
-        
-        with open(self.auth_file, 'w') as f:
-            json.dump(auth_data, f, indent=2)
-        
-        print("PIN changed successfully!")
+        try:
+            serial_file = os.path.join(self.config_dir, 'android_serial')
+            if os.path.exists(serial_file):
+                os.remove(serial_file)
+            print("Configuration cleared.")
+            print("The system will no longer lock/unlock based on device connection.")
+        except Exception as e:
+            print(f"Error clearing configuration: {e}")
     
     def logs(self, lines: int = 50):
         """Show service logs"""
@@ -301,42 +359,6 @@ class LockCLI:
                 all_lines = f.readlines()
                 for line in all_lines[-lines:]:
                     print(line.rstrip())
-    
-    def test_auth(self):
-        """Test authentication (for development)"""
-        print("=== Test Authentication ===")
-        
-        if not os.path.exists(self.auth_file):
-            print("Error: No authentication data found. Run 'lock-cli setup' first.")
-            return
-        
-        pin = getpass.getpass("Enter PIN to test: ")
-        
-        # Load auth data
-        with open(self.auth_file, 'r') as f:
-            auth_data = json.load(f)
-        
-        device_id = self.get_device_id()
-        
-        # Generate test challenge
-        import uuid
-        challenge = f"CHL-{datetime.now().isoformat()}-{str(uuid.uuid4())[:8]}-{device_id}"
-        
-        # Calculate expected response
-        pin_hash = auth_data.get('pin_hash')
-        if not pin_hash:
-            print("Error: No PIN hash found.")
-            return
-        
-        expected_response = hmac.new(
-            pin_hash.encode(),
-            challenge.encode(),
-            hashlib.sha256
-        ).hexdigest()
-        
-        print(f"Challenge: {challenge}")
-        print(f"Expected response: {expected_response}")
-        print("Use this data to test Android app authentication.")
 
 
 def main():
@@ -344,7 +366,7 @@ def main():
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
     
     # Setup command
-    subparsers.add_parser('setup', help='Initial setup of the lock service')
+    subparsers.add_parser('setup', help='Configure Android device for unlock')
     
     # Service management commands
     subparsers.add_parser('start', help='Start the lock service')
@@ -352,16 +374,17 @@ def main():
     subparsers.add_parser('restart', help='Restart the lock service')
     subparsers.add_parser('status', help='Show service status')
     
-    # Authentication commands
-    subparsers.add_parser('emergency-unlock', help='Emergency unlock using recovery code')
-    subparsers.add_parser('change-pin', help='Change the PIN')
+    # Device commands
+    subparsers.add_parser('list-devices', help='List connected Android devices')
+    
+    # Emergency commands
+    subparsers.add_parser('emergency-unlock', help='Emergency unlock without device')
+    subparsers.add_parser('clear-config', help='Remove configured device')
     
     # Utility commands
     logs_parser = subparsers.add_parser('logs', help='Show service logs')
     logs_parser.add_argument('-n', '--lines', type=int, default=50,
                            help='Number of log lines to show')
-    
-    subparsers.add_parser('test-auth', help='Test authentication (development)')
     
     args = parser.parse_args()
     
@@ -381,14 +404,14 @@ def main():
         cli.restart_service()
     elif args.command == 'status':
         cli.status()
+    elif args.command == 'list-devices':
+        cli.list_devices()
     elif args.command == 'emergency-unlock':
         cli.emergency_unlock()
-    elif args.command == 'change-pin':
-        cli.change_pin()
+    elif args.command == 'clear-config':
+        cli.clear_config()
     elif args.command == 'logs':
         cli.logs(args.lines)
-    elif args.command == 'test-auth':
-        cli.test_auth()
 
 
 if __name__ == "__main__":
