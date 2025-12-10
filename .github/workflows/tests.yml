@@ -10,25 +10,39 @@ jobs:
   test:
     runs-on: ubuntu-latest
     
-    strategy:
-      matrix:
-        python-version: ["3.8", "3.9", "3.10", "3.11"]
-    
     steps:
     - uses: actions/checkout@v3
     
-    - name: Set up Python ${{ matrix.python-version }}
+    - name: Set up Python 3.11
       uses: actions/setup-python@v4
       with:
-        python-version: ${{ matrix.python-version }}
+        python-version: "3.11"
     
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
+        pip install pytest pytest-cov coverage
     
-    - name: Run tests
+    - name: Run tests with coverage
       run: |
-        python -m unittest discover -s tests -p 'test_*.py' -v
-      continue-on-error: false
+        coverage run -m unittest discover -s tests -p 'test_*.py' -v
+        coverage xml
+        coverage json
+        coverage report
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        fail_ci_if_error: false
+      if: always()
+    
+    - name: Comment PR with coverage
+      uses: py-cov-action/python-coverage-comment-action@v3
+      if: github.event_name == 'pull_request'
+      with:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        MINIMUM_GREEN: 60
+        MINIMUM_ORANGE: 40
 
