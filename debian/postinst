@@ -4,16 +4,29 @@ set -e
 # Post-installation script for locker
 
 # Reload systemd (only if systemd is running)
-if command -v systemctl >/dev/null 2>&1 && systemctl is-system-running >/dev/null 2>&1; then
-    systemctl daemon-reload
-    
-    # Enable and start the service
-    systemctl enable locker || true
-    systemctl start locker || true
-elif [ -d /run/systemd/system ]; then
-    # Systemd is installed but not running (e.g., in Docker)
-    # Just create the service file, it will be enabled on next boot
-    :
+if command -v systemctl >/dev/null 2>&1; then
+    # Check if systemd is actually running
+    if systemctl is-system-running >/dev/null 2>&1; then
+        systemctl daemon-reload
+        
+        # Enable and start the service
+        systemctl enable locker || true
+        systemctl start locker || true
+    elif [ -d /run/systemd/system ]; then
+        # Systemd is installed but not running (e.g., in Docker)
+        # Try to enable it anyway (will be started on next boot or when systemd starts)
+        systemctl daemon-reload 2>/dev/null || true
+        systemctl enable locker 2>/dev/null || true
+        echo "Note: Systemd is not running. Service will start when systemd is available."
+        echo "To start manually: systemctl start locker"
+        echo "Or run directly: lockerd"
+    else
+        echo "Note: Systemd not available. Service must be started manually."
+        echo "To start: lockerd"
+    fi
+else
+    echo "Note: Systemd not installed. Service must be started manually."
+    echo "To start: lockerd"
 fi
 
 # Create log rotation configuration
@@ -34,12 +47,23 @@ EOF
 
 
 echo "Locker installed successfully."
-echo "The service has been enabled and started."
+if command -v systemctl >/dev/null 2>&1 && systemctl is-system-running >/dev/null 2>&1; then
+    echo "The service has been enabled and started."
+else
+    echo "The service has been installed but not started (systemd not running)."
+    echo "To start the service:"
+    echo "  - With systemd: systemctl start locker"
+    echo "  - Directly: lockerd"
+fi
 echo "Next steps:"
 echo "  1. Run 'locker get-android-serial' to see connected devices"
 echo "  2. Run 'locker set-android-serial' to configure an Android device"
 echo "  3. Run 'locker add-service <service>' to configure services"
 echo "  4. Run 'locker set-mode enforcing' to enable locking"
-echo "  5. Check service status with 'systemctl status locker'"
+if command -v systemctl >/dev/null 2>&1; then
+    echo "  5. Check service status with 'systemctl status locker'"
+else
+    echo "  5. Check logs with 'locker logs'"
+fi
 
 #DEBHELPER#

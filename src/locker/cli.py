@@ -52,54 +52,152 @@ class LockCLI:
         return None
     
     def save_config(self, config: dict):
-        """Save configuration to file"""
+        """Save configuration to file and log the change"""
         os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
         with open(self.config_path, 'w') as f:
             json.dump(config, f, indent=2)
         os.chmod(self.config_path, 0o644)
+        
+        # Log configuration change to service log file
+        self._log_config_change(config)
+    
+    def _log_config_change(self, config: dict):
+        """Log configuration change to service log file"""
+        try:
+            log_file = config.get('service', {}).get('log_file', '/var/log/locker.log')
+            
+            # Setup a logger that writes to the service log file
+            import logging
+            logger = logging.getLogger('locker.cli')
+            logger.setLevel(logging.INFO)
+            
+            # Remove existing handlers to avoid duplicates
+            logger.handlers.clear()
+            
+            # Create formatter
+            formatter = logging.Formatter(
+                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            )
+            
+            # Try to add file handler
+            try:
+                # Ensure log directory exists
+                log_dir = os.path.dirname(log_file)
+                if log_dir:
+                    os.makedirs(log_dir, exist_ok=True)
+                
+                file_handler = logging.FileHandler(log_file)
+                file_handler.setFormatter(formatter)
+                logger.addHandler(file_handler)
+                
+                # Log configuration change
+                logger.info("Configuration changed via CLI")
+                
+                # Log key configuration values
+                logger.info(f"  Mode: {config.get('mode', 'permissive')}")
+                android_serial = config.get('android_serial', 'Not configured')
+                if android_serial and len(android_serial) > 20:
+                    android_serial = android_serial[:10] + "..." + android_serial[-7:]
+                logger.info(f"  Android Serial: {android_serial}")
+                logger.info(f"  Services: {config.get('services', [])}")
+                logger.info(f"  Monitoring Interval: {config.get('monitoring', {}).get('check_interval_seconds', 5)} seconds")
+                
+                # Close handler
+                file_handler.close()
+                logger.removeHandler(file_handler)
+            except (OSError, PermissionError):
+                # If we can't write to log file, silently fail (CLI shouldn't require root)
+                pass
+        except Exception:
+            # Silently fail if logging fails
+            pass
     
     def get_connected_devices(self) -> List[tuple]:
-        """Get list of connected Android devices (serial, model) using pyudev"""
+        """Get list of connected Android devices (serial, model) using ADB and pyudev"""
         devices = []
+        seen_serials = set()
+        
+        # First, try to use ADB directly (most reliable method)
         try:
-            context = pyudev.Context()
-            
-            # Find Android devices via USB
-            android_vendor_ids = ['18d1', '0bb4', '04e8', '24e3', '0955', '201e', '0e79', '04c5']
-            seen_serials = set()
-            
-            for vendor_id in android_vendor_ids:
-                try:
-                    for device in context.list_devices(subsystem='usb', ID_VENDOR_ID=vendor_id):
-                        serial = device.get('ID_SERIAL_SHORT') or device.get('ID_SERIAL')
-                        if serial and serial not in seen_serials:
-                            # Try to get model information
-                            model = device.get('ID_MODEL', 'Unknown')
-                            # Clean up model name
-                            model = model.replace('_', ' ').title()
-                            devices.append((serial, model))
-                            seen_serials.add(serial)
-                except Exception:
-                    continue
-            
-            # Also check for devices via usb subsystem more broadly
-            # Look for devices with Android Debug Bridge interface protocol
+            result = subprocess.run(
+                ['adb', 'devices', '-l'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                for line in result.stdout.split('\n'):
+                    if line.strip() and not line.startswith('List of devices'):
+                        parts = line.split()
+                        if len(parts) >= 2 and parts[1] == 'device':
+                            serial = parts[0]
+                            # Extract model from the line if available
+                            model = 'Unknown'
+                            for part in parts:
+                                if 'model:' in part.lower():
+                                    model = part.split(':', 1)[1].replace('_', ' ').title()
+                                    break
+                            if serial and serial not in seen_serials:
+                                devices.append((serial, model))
+                                seen_serials.add(serial)
+        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+            # ADB not available, fall back to pyudev
+            pass
+        
+        # Fallback to pyudev detection (less reliable but works without ADB)
+        if not devices:
             try:
-                for device in context.list_devices(subsystem='usb'):
-                    # Check if this is an Android device by looking for Android Debug Bridge interface
-                    interfaces = device.get('ID_USB_INTERFACES', '')
-                    if 'adb' in interfaces.lower() or ':' in device.get('ID_USB_INTERFACES', ''):
-                        serial = device.get('ID_SERIAL_SHORT') or device.get('ID_SERIAL')
-                        if serial and serial not in seen_serials:
-                            model = device.get('ID_MODEL', 'Unknown')
-                            model = model.replace('_', ' ').title()
-                            devices.append((serial, model))
-                            seen_serials.add(serial)
-            except Exception:
-                pass
+                context = pyudev.Context()
                 
-        except Exception as e:
-            print(f"Error getting connected devices: {e}")
+                # Android vendor IDs
+                android_vendor_ids = ['18d1', '0bb4', '04e8', '24e3', '0955', '201e', '0e79', '04c5', '2a47']
+                
+                try:
+                    for device in context.list_devices(subsystem='usb'):
+                        interfaces = device.get('ID_USB_INTERFACES', '')
+                        vendor_id = device.get('ID_VENDOR_ID', '').lower()
+                        serial = device.get('ID_SERIAL_SHORT') or device.get('ID_SERIAL')
+                        
+                        # Skip devices without serials
+                        if not serial:
+                            continue
+                        
+                        # Check if this looks like an Android device
+                        is_android = False
+                        
+                        # Method 1: Check vendor ID (most reliable)
+                        if vendor_id in android_vendor_ids:
+                            is_android = True
+                        
+                        # Method 2: Check for ADB interface class (0xff) - but only if we have a valid serial
+                        # This is less reliable but helps catch devices that might not be in vendor list
+                        if not is_android and ':' in interfaces:
+                            interface_parts = interfaces.split(':')
+                            if len(interface_parts) >= 1:
+                                interface_class = interface_parts[0]
+                                # ADB uses vendor-specific class 0xff (255)
+                                if interface_class.lower() == 'ff' or interface_class == '255':
+                                    # Additional check: serial should look like an Android serial
+                                    if len(serial) >= 8 and serial.replace('_', '').replace('-', '').isalnum():
+                                        is_android = True
+                        
+                        if is_android:
+                            if serial not in seen_serials:
+                                # Additional validation: Android serials are typically alphanumeric
+                                # Skip PCI addresses and other non-Android identifiers
+                                if len(serial) >= 8 and serial.replace('_', '').replace('-', '').isalnum():
+                                    # Skip PCI-style addresses (e.g., "0000:01:02.0")
+                                    if ':' not in serial or not serial.startswith('0000:'):
+                                        model = device.get('ID_MODEL', 'Unknown')
+                                        model = model.replace('_', ' ').title()
+                                        devices.append((serial, model))
+                                        seen_serials.add(serial)
+                except Exception as e:
+                    # Log error but continue
+                    pass
+                    
+            except Exception as e:
+                print(f"Error getting devices: {e}")
         
         return devices
     
@@ -198,29 +296,6 @@ class LockCLI:
         except Exception as e:
             print(f"Error saving configuration: {e}")
     
-    def list_devices(self):
-        """List all connected Android devices"""
-        print("=== Connected Android Devices ===")
-        
-        devices = self.get_connected_devices()
-        
-        if not devices:
-            print("No Android devices found.")
-            print()
-            print("Please ensure:")
-            print("  1. Your Android device is connected via USB")
-            print("  2. USB debugging is enabled on the device")
-            return
-        
-        print()
-        configured_serial = self.get_android_serial()
-        
-        for serial, model in devices:
-            marker = " [CONFIGURED]" if serial == configured_serial else ""
-            print(f"  {serial} ({model}){marker}")
-        
-        print()
-        print(f"Total: {len(devices)} device(s)")
     
     def add_service(self, service_name: str):
         """Add a service to be managed (started on connection, stopped on disconnection)"""
@@ -306,17 +381,32 @@ class LockCLI:
             log_file = "/var/log/locker.log"
         
         if not os.path.exists(log_file):
-            print("No log file found.")
+            print(f"No log file found at {log_file}")
+            print("The log file will be created when the service starts.")
+            print("Start the service with: systemctl start locker")
+            print("Or run the service directly: lockerd")
             return
         
         try:
+            # Check if file is empty
+            if os.path.getsize(log_file) == 0:
+                print(f"Log file exists but is empty: {log_file}")
+                print("The service may not have started yet or no logs have been written.")
+                return
+            
             subprocess.run(['tail', '-n', str(lines), log_file])
         except FileNotFoundError:
             # Fallback to reading file directly
-            with open(log_file, 'r') as f:
-                all_lines = f.readlines()
-                for line in all_lines[-lines:]:
-                    print(line.rstrip())
+            try:
+                with open(log_file, 'r') as f:
+                    all_lines = f.readlines()
+                    if not all_lines:
+                        print(f"Log file exists but is empty: {log_file}")
+                        return
+                    for line in all_lines[-lines:]:
+                        print(line.rstrip())
+            except Exception as e:
+                print(f"Error reading log file: {e}")
     
     def is_service_running(self) -> bool:
         """Check if the locker systemd service is running"""
@@ -594,8 +684,6 @@ def main():
         cli.get_android_serial_cmd()
     elif args.command == 'set-android-serial':
         cli.set_android_serial(getattr(args, 'serial', None))
-    elif args.command == 'list-devices':
-        cli.list_devices()
     elif args.command == 'add-service':
         cli.add_service(args.service)
     elif args.command == 'set-mode':

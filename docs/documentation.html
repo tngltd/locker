@@ -255,16 +255,37 @@
                 <p>This guide explains how to build the Debian package for locker.</p>
 
                 <h2>Building the Package</h2>
-                <p>The package can be built on both Mac and Linux using Docker.</p>
+                <p>The package can be built on Ubuntu natively or on Mac/Linux using Docker.</p>
 
-                <h3>Prerequisites</h3>
+                <h3>Building on Ubuntu (Native)</h3>
+                <p>If you're running Ubuntu, you can build the package directly without Docker.</p>
+
+                <h4>Prerequisites</h4>
+                <p>Install the required build dependencies:</p>
+                <pre><code>sudo apt-get update
+sudo apt-get install -y build-essential debhelper dh-python python3-all python3-setuptools python3-pip pybuild-plugin-pyproject python3-hatchling</code></pre>
+
+                <h4>Build Steps</h4>
+                <pre><code>./scripts/build-deb.sh</code></pre>
+                <p>This will:</p>
+                <ul>
+                    <li>Check for required build dependencies</li>
+                    <li>Clean previous build artifacts</li>
+                    <li>Build the Debian package using <code>dpkg-buildpackage</code></li>
+                    <li>Output <code>locker_1.0.0-1_all.deb</code> in your project directory</li>
+                </ul>
+
+                <h3>Building with Docker</h3>
+                <p>For cross-platform builds or isolated build environments, use Docker.</p>
+
+                <h4>Prerequisites</h4>
                 <ul>
                     <li>Docker installed and running</li>
                     <li>Git (to clone the repository)</li>
                 </ul>
 
-                <h3>Build Steps</h3>
-                <h4>1. Build the Package</h4>
+                <h4>Build Steps</h4>
+                <h5>1. Build the Package</h5>
                 <pre><code>./scripts/build-with-docker.sh</code></pre>
                 <p>This will:</p>
                 <ul>
@@ -273,7 +294,7 @@
                     <li>Output <code>locker_1.0.0-1_all.deb</code> in your project directory</li>
                 </ul>
 
-                <h4>2. Test the Build (Optional)</h4>
+                <h5>2. Test the Build (Optional)</h5>
                 <pre><code>./scripts/test-docker-build.sh</code></pre>
                 <p>This will:</p>
                 <ul>
@@ -331,6 +352,7 @@ locker/
 │   ├── postinst
 │   └── ...
 ├── scripts/
+│   ├── build-deb.sh        # Build package natively on Ubuntu
 │   ├── build-with-docker.sh # Build package in Docker
 │   ├── test-docker-build.sh # Test build and installation
 │   ├── install.sh          # Manual installation script

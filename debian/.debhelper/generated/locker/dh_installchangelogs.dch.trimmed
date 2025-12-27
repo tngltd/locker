@@ -1,0 +1,8 @@
+locker (1.0.0-1) unstable; urgency=medium
+
+  * Initial release
+  * Android device-based unlock mechanism
+  * System lockdown capabilities
+  * CLI management tool
+
+ -- Locker Team <admin@example.com>  Tue, 10 Dec 2025 00:00:00 +0000
