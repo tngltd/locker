@@ -3,6 +3,33 @@ set -e
 
 # Post-installation script for locker
 
+# Ensure configuration file exists
+CONFIG_FILE="/etc/locker/config.json"
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "Creating default configuration file at $CONFIG_FILE"
+    mkdir -p /etc/locker
+    cat > "$CONFIG_FILE" << 'EOF'
+{
+  "service": {
+    "log_level": "INFO",
+    "log_file": "/var/log/locker.log",
+    "name": "locker"
+  },
+  "network": {
+    "blocked_interfaces": []
+  },
+  "monitoring": {
+    "check_interval_seconds": 5
+  },
+  "mode": "permissive",
+  "android_serial": null,
+  "services": []
+}
+EOF
+    chmod 644 "$CONFIG_FILE"
+    echo "Default configuration file created."
+fi
+
 # Reload systemd (only if systemd is running)
 if command -v systemctl >/dev/null 2>&1; then
     # Check if systemd is actually running

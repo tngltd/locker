@@ -8,4 +8,17 @@ if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload 2>/dev/null || true
 fi
 
+# Remove log file if it exists
+LOG_FILE="/var/log/locker.log"
+if [ -f "$LOG_FILE" ]; then
+    echo "Removing log file: $LOG_FILE"
+    rm -f "$LOG_FILE"
+fi
+
+# Remove logrotate configuration if it exists
+if [ -f "/etc/logrotate.d/locker" ]; then
+    echo "Removing logrotate configuration"
+    rm -f /etc/logrotate.d/locker
+fi
+
 #DEBHELPER#
