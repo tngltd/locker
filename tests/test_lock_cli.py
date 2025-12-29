@@ -523,16 +523,16 @@ class TestLockCLIMain(unittest.TestCase):
                 main()
                 mock_logs.assert_called_once_with(100, False)
     
-    def test_main_logs_command_with_debug(self):
-        """Test main() with logs command and debug flag"""
-        with patch('sys.argv', ['locker', 'logs', '-d']):
+    def test_main_logs_command_with_follow(self):
+        """Test main() with logs command and follow flag"""
+        with patch('sys.argv', ['locker', 'logs', '-f']):
             with patch.object(LockCLI, 'logs') as mock_logs:
                 main()
                 mock_logs.assert_called_once_with(50, True)
     
-    def test_main_logs_command_with_lines_and_debug(self):
-        """Test main() with logs command, line count, and debug flag"""
-        with patch('sys.argv', ['locker', 'logs', '-n', '100', '-d']):
+    def test_main_logs_command_with_lines_and_follow(self):
+        """Test main() with logs command, line count, and follow flag"""
+        with patch('sys.argv', ['locker', 'logs', '-n', '100', '-f']):
             with patch.object(LockCLI, 'logs') as mock_logs:
                 main()
                 mock_logs.assert_called_once_with(100, True)

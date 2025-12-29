@@ -517,51 +517,45 @@ class LockService:
         while self.running:
             try:
                 if not self.is_configured():
-                    # No device configured - just wait
-                    self.logger.debug("Monitor loop: No Android device configured")
-                    time.sleep(check_interval)
-                    continue
-                
-                # Only enforce locking in enforcing mode
-                if self.mode != 'enforcing':
-                    self.logger.debug(f"Monitor loop: Permissive mode - device check skipped")
+                    # No device configured - log status and wait
+                    self.logger.info("Monitor: No Android device configured - system unlocked")
                     time.sleep(check_interval)
                     continue
                 
                 # Check if configured device is connected
                 is_connected = self.is_configured_device_connected()
                 
-                # Debug log device status
+                # Check service status
+                services = self.config.get('services', [])
+                running_services = [s for s in services if self.is_service_running(s)]
+                
+                # Log current status every iteration
                 device_status = "CONNECTED" if is_connected else "DISCONNECTED"
-                self.logger.debug(f"Monitor loop: Device {self.android_serial} status: {device_status}, Mode: {self.mode}")
+                system_status = "UNLOCKED" if is_connected else "LOCKED"
+                self.logger.info(f"Monitor: Device {self.android_serial} {device_status}, Mode: {self.mode}, System: {system_status}, Services running: {running_services}")
+                
+                # Only enforce locking in enforcing mode
+                if self.mode != 'enforcing':
+                    time.sleep(check_interval)
+                    continue
                 
                 if is_connected and not was_connected:
                     # Device just connected - unlock
                     self.logger.info(f"Android device {self.android_serial} connected - unlocking system")
-                    self.logger.debug("Monitor loop: Transitioning to UNLOCKED state")
                     self.unlock_system()
                     was_connected = True
                 
                 elif not is_connected and was_connected:
                     # Device just disconnected - lock
                     self.logger.info(f"Android device {self.android_serial} disconnected - locking system")
-                    self.logger.debug("Monitor loop: Transitioning to LOCKED state")
                     self.lock_system()
                     was_connected = False
                 
                 elif not is_connected:
                     # Device not connected - check if services are running and lock if needed
-                    services = self.config.get('services', [])
-                    any_running = any(self.is_service_running(s) for s in services)
-                    if any_running:
-                        self.logger.info("Configured device not connected - locking system")
-                        self.logger.debug(f"Monitor loop: Device disconnected, services running: {services} - locking system")
+                    if running_services:
+                        self.logger.info(f"Device disconnected, services still running: {running_services} - locking system")
                         self.lock_system()
-                    else:
-                        self.logger.debug(f"Monitor loop: Device disconnected, no services running - system already locked")
-                else:
-                    # Device is connected
-                    self.logger.debug("Monitor loop: Device connected - system unlocked")
                 
                 time.sleep(check_interval)
                 

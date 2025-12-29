@@ -10,6 +10,7 @@ import json
 import argparse
 import subprocess
 import time
+import signal
 from pathlib import Path
 from typing import Optional, List
 import pyudev
@@ -417,7 +418,7 @@ class LockCLI:
         except Exception as e:
             print(f"Error setting mode: {e}")
     
-    def logs(self, lines: int = 50, debug: bool = False):
+    def logs(self, lines: int = 50, follow: bool = False):
         """Show service logs"""
         try:
             config = self.load_config()
@@ -432,33 +433,28 @@ class LockCLI:
             print("Or run the service directly: lockerd")
             return
         
-        # Check if file is empty
-        try:
-            if os.path.getsize(log_file) == 0:
-                print(f"Log file exists but is empty: {log_file}")
-                print("The service may not have started yet or no logs have been written.")
-                return
-        except OSError:
-            # File might have been deleted between exists() and getsize()
-            print(f"Log file no longer accessible: {log_file}")
-            return
-        
-        if debug:
-            # Filter to show only DEBUG level logs
+        # Check if file is empty (only if not following)
+        if not follow:
             try:
-                with open(log_file, 'r') as f:
-                    all_lines = f.readlines()
-                    debug_lines = [line for line in all_lines if ' - locker - DEBUG -' in line]
-                    if debug_lines:
-                        for line in debug_lines[-lines:]:
-                            print(line.rstrip())
-                    else:
-                        print("No DEBUG level logs found.")
-                        print("Make sure the service is running and DEBUG logging is enabled.")
-            except Exception as e:
-                print(f"Error reading log file: {e}")
+                if os.path.getsize(log_file) == 0:
+                    print(f"Log file exists but is empty: {log_file}")
+                    print("The service may not have started yet or no logs have been written.")
+                    return
+            except OSError:
+                # File might have been deleted between exists() and getsize()
+                print(f"Log file no longer accessible: {log_file}")
+                return
+        
+        if follow:
+            # Follow mode - use tail -f
+            try:
+                subprocess.run(['tail', '-f', log_file])
+            except FileNotFoundError:
+                print("Error: tail command not found. Follow mode requires tail.")
+            except KeyboardInterrupt:
+                print("\nStopped following logs.")
         else:
-            # Try to use tail command first
+            # Regular mode - show last N lines
             try:
                 subprocess.run(['tail', '-n', str(lines), log_file])
             except FileNotFoundError:
@@ -473,25 +469,6 @@ class LockCLI:
                             print(line.rstrip())
                 except Exception as e:
                     print(f"Error reading log file: {e}")
-            # Fallback to reading file directly
-            try:
-                with open(log_file, 'r') as f:
-                    all_lines = f.readlines()
-                    if not all_lines:
-                        print(f"Log file exists but is empty: {log_file}")
-                        return
-                    if debug:
-                        debug_lines = [line for line in all_lines if ' - locker - DEBUG -' in line]
-                        if debug_lines:
-                            for line in debug_lines[-lines:]:
-                                print(line.rstrip())
-                        else:
-                            print("No DEBUG level logs found.")
-                    else:
-                        for line in all_lines[-lines:]:
-                            print(line.rstrip())
-            except Exception as e:
-                print(f"Error reading log file: {e}")
     
     def is_service_running(self) -> bool:
         """Check if the locker systemd service is running"""
@@ -771,8 +748,8 @@ def main():
     logs_parser = subparsers.add_parser('logs', help='Show service logs')
     logs_parser.add_argument('-n', '--lines', type=int, default=50,
                            help='Number of log lines to show')
-    logs_parser.add_argument('-d', '--debug', action='store_true',
-                           help='Show only DEBUG level logs')
+    logs_parser.add_argument('-f', '--follow', action='store_true',
+                           help='Follow log file (like tail -f)')
     
     args = parser.parse_args()
     
@@ -797,7 +774,7 @@ def main():
     elif args.command == 'setup':
         cli.setup()
     elif args.command == 'logs':
-        cli.logs(args.lines, args.debug)
+        cli.logs(args.lines, args.follow)
 
 
 if __name__ == "__main__":
