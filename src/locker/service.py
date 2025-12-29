@@ -45,7 +45,7 @@ class LockService:
         if self.android_serial:
             self.logger.info(f"Lock Service initialized. Configured Android serial: {self.android_serial}")
         else:
-            self.logger.warning("Lock Service initialized. No Android device configured - run \"locker set-android-serial\" first")
+            self.logger.warning("Lock Service initialized. No Android device configured - run \"locker setup\" first")
         self.logger.info(f"System OS: {self.get_system_info()}")
     
     def load_config(self) -> Dict:

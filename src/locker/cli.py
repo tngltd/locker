@@ -716,6 +716,7 @@ def main():
                                 help='Mode: permissive (no locking) or enforcing (lock when device disconnected)')
     
     # Utility commands
+    subparsers.add_parser('setup', help='Interactive setup for configuring the service')
     logs_parser = subparsers.add_parser('logs', help='Show service logs')
     logs_parser.add_argument('-n', '--lines', type=int, default=50,
                            help='Number of log lines to show')
@@ -740,6 +741,8 @@ def main():
         cli.remove_service(args.service)
     elif args.command == 'set-mode':
         cli.set_mode(getattr(args, 'mode', None))
+    elif args.command == 'setup':
+        cli.setup()
     elif args.command == 'logs':
         cli.logs(args.lines)
 

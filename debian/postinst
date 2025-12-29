@@ -56,14 +56,16 @@ else
     echo "  - Directly: lockerd"
 fi
 echo "Next steps:"
-echo "  1. Run 'locker get-android-serial' to see connected devices"
-echo "  2. Run 'locker set-android-serial' to configure an Android device"
-echo "  3. Run 'locker add-service <service>' to configure services"
-echo "  4. Run 'locker set-mode enforcing' to enable locking"
+echo "  1. Run 'locker setup' for interactive initial configuration"
+echo "     Or manually:"
+echo "     - Run 'locker list-devices' to see connected devices"
+echo "     - Run 'locker set-android-serial' to configure an Android device"
+echo "  2. Run 'locker add-service <service>' to configure services to manage"
+echo "  3. Run 'locker set-mode enforcing' to enable locking"
 if command -v systemctl >/dev/null 2>&1; then
-    echo "  5. Check service status with 'systemctl status locker'"
+    echo "  4. Check service status with 'systemctl status locker'"
 else
-    echo "  5. Check logs with 'locker logs'"
+    echo "  4. Check logs with 'locker logs'"
 fi
 
 #DEBHELPER#
