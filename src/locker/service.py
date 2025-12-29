@@ -531,48 +531,79 @@ class LockService:
         was_connected = self.is_configured_device_connected() if self.is_configured() else False
         
         while self.running:
+            self.logger.info("Monitor loop iteration started")
             try:
                 # Check service status (always check, even if no device configured)
                 services = self.config.get('services', [])
-                running_services = [s for s in services if self.is_service_running(s)]
+                self.logger.info(f"Checking {len(services)} configured service(s): {services}")
+                running_services = []
+                for service in services:
+                    is_running = self.is_service_running(service)
+                    if is_running:
+                        running_services.append(service)
+                    self.logger.info(f"Service '{service}' status: {'RUNNING' if is_running else 'STOPPED'}")
+                self.logger.info(f"Running services: {running_services}")
                 
                 if not self.is_configured():
                     # No device configured - log status and wait
+                    self.logger.info(f"No Android device configured - checking configuration...")
                     self.logger.info(f"Monitor: No Android device configured, Mode: {self.mode}, System: UNLOCKED, Services running: {running_services}")
+                    self.logger.info(f"Sleeping for {check_interval} seconds before next check")
                     time.sleep(check_interval)
                     continue
                 
+                self.logger.info(f"Android device configured: {self.android_serial}")
+                
                 # Check if configured device is connected
+                self.logger.info(f"Checking if device {self.android_serial} is connected...")
                 is_connected = self.is_configured_device_connected()
+                self.logger.info(f"Device {self.android_serial} connection status: {'CONNECTED' if is_connected else 'DISCONNECTED'}")
                 
                 # Log current status every iteration
                 device_status = "CONNECTED" if is_connected else "DISCONNECTED"
                 system_status = "UNLOCKED" if is_connected else "LOCKED"
                 self.logger.info(f"Monitor: Device {self.android_serial} {device_status}, Mode: {self.mode}, System: {system_status}, Services running: {running_services}")
+                self.logger.info(f"Previous connection state: {'CONNECTED' if was_connected else 'DISCONNECTED'}")
                 
                 # Only enforce locking in enforcing mode
                 if self.mode != 'enforcing':
+                    self.logger.info(f"Mode is '{self.mode}' (not enforcing) - skipping lock/unlock actions")
+                    self.logger.info(f"Sleeping for {check_interval} seconds before next check")
                     time.sleep(check_interval)
                     continue
                 
+                self.logger.info(f"Mode is 'enforcing' - checking if action needed...")
+                
                 if is_connected and not was_connected:
                     # Device just connected - unlock
-                    self.logger.info(f"Android device {self.android_serial} connected - unlocking system")
+                    self.logger.info(f"State change detected: Device {self.android_serial} just CONNECTED (was disconnected)")
+                    self.logger.info(f"Action: Unlocking system")
                     self.unlock_system()
                     was_connected = True
+                    self.logger.info(f"Updated connection state: was_connected = True")
                 
                 elif not is_connected and was_connected:
                     # Device just disconnected - lock
-                    self.logger.info(f"Android device {self.android_serial} disconnected - locking system")
+                    self.logger.info(f"State change detected: Device {self.android_serial} just DISCONNECTED (was connected)")
+                    self.logger.info(f"Action: Locking system")
                     self.lock_system()
                     was_connected = False
+                    self.logger.info(f"Updated connection state: was_connected = False")
                 
                 elif not is_connected:
                     # Device not connected - check if services are running and lock if needed
+                    self.logger.info(f"Device is disconnected (no state change)")
                     if running_services:
-                        self.logger.info(f"Device disconnected, services still running: {running_services} - locking system")
+                        self.logger.info(f"Services still running: {running_services} - action needed")
+                        self.logger.info(f"Action: Locking system to stop running services")
                         self.lock_system()
+                    else:
+                        self.logger.info(f"No services running - system already locked or no services to manage")
+                else:
+                    # Device is connected and was connected (no change)
+                    self.logger.info(f"Device is connected (no state change) - no action needed")
                 
+                self.logger.info(f"Sleeping for {check_interval} seconds before next check")
                 time.sleep(check_interval)
                 
             except KeyboardInterrupt:
