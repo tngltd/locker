@@ -255,17 +255,14 @@
                 <p>This guide explains how to build the Debian package for locker.</p>
 
                 <h2>Building the Package</h2>
-                <p>The package can be built on Ubuntu natively or on Mac/Linux using Docker.</p>
+                <p>The package can be built on Ubuntu using the build script.</p>
 
-                <h3>Building on Ubuntu (Native)</h3>
-                <p>If you're running Ubuntu, you can build the package directly without Docker.</p>
-
-                <h4>Prerequisites</h4>
+                <h3>Prerequisites</h3>
                 <p>Install the required build dependencies:</p>
                 <pre><code>sudo apt-get update
 sudo apt-get install -y build-essential debhelper dh-python python3-all python3-setuptools python3-pip pybuild-plugin-pyproject python3-hatchling</code></pre>
 
-                <h4>Build Steps</h4>
+                <h3>Build Steps</h3>
                 <pre><code>./scripts/build-deb.sh</code></pre>
                 <p>This will:</p>
                 <ul>
@@ -275,39 +272,10 @@ sudo apt-get install -y build-essential debhelper dh-python python3-all python3-
                     <li>Output <code>locker_1.0.0-1_all.deb</code> in your project directory</li>
                 </ul>
 
-                <h3>Building with Docker</h3>
-                <p>For cross-platform builds or isolated build environments, use Docker.</p>
-
-                <h4>Prerequisites</h4>
-                <ul>
-                    <li>Docker installed and running</li>
-                    <li>Git (to clone the repository)</li>
-                </ul>
-
-                <h4>Build Steps</h4>
-                <h5>1. Build the Package</h5>
-                <pre><code>./scripts/build-with-docker.sh</code></pre>
-                <p>This will:</p>
-                <ul>
-                    <li>Build a Docker image with Ubuntu and Debian build tools (first time only)</li>
-                    <li>Run the build inside a Docker container</li>
-                    <li>Output <code>locker_1.0.0-1_all.deb</code> in your project directory</li>
-                </ul>
-
-                <h5>2. Test the Build (Optional)</h5>
-                <pre><code>./scripts/test-docker-build.sh</code></pre>
-                <p>This will:</p>
-                <ul>
-                    <li>Build the package</li>
-                    <li>Test installation in an Ubuntu container</li>
-                    <li>Verify all files are installed correctly</li>
-                    <li>Test the CLI</li>
-                </ul>
-
                 <h3>Package Structure</h3>
                 <p>The Debian package includes:</p>
                 <ul>
-                    <li><code>/usr/bin/locker</code> - Service daemon entry point (installed by Python package)</li>
+                    <li><code>/usr/bin/lockerd</code> - Service daemon entry point (installed by Python package)</li>
                     <li><code>/usr/bin/locker</code> - CLI management tool entry point (installed by Python package)</li>
                     <li><code>/usr/lib/python3/dist-packages/locker/</code> - Python package source code</li>
                     <li><code>/etc/locker/config.json</code> - Configuration file</li>
@@ -323,8 +291,8 @@ sudo apt-get install -y build-essential debhelper dh-python python3-all python3-
                     <li><code>python3-psutil</code></li>
                     <li><code>python3-pyudev</code></li>
                     <li><code>systemd</code></li>
-                    <li><code>iptables</code></li>
                 </ul>
+                <p><strong>Note:</strong> The service uses <code>iptables</code> for network locking, which is typically pre-installed on Ubuntu systems. If not present, install it separately with <code>sudo apt install iptables</code>.</p>
 
                 <h3>Local Development</h3>
                 <p>For local development, install the package in development mode:</p>
@@ -333,7 +301,7 @@ pip install -e .
 
 # Then use the commands directly
 locker --help
-locker --help</code></pre>
+lockerd --help</code></pre>
 
                 <h3>Project Structure</h3>
                 <div class="file-tree">
@@ -352,11 +320,7 @@ locker/
 │   ├── postinst
 │   └── ...
 ├── scripts/
-│   ├── build-deb.sh        # Build package natively on Ubuntu
-│   ├── build-with-docker.sh # Build package in Docker
-│   ├── test-docker-build.sh # Test build and installation
-│   ├── install.sh          # Manual installation script
-│   └── setup.sh            # Setup script
+│   └── build-deb.sh        # Build package on Ubuntu
 ├── tests/                  # Unit tests
 ├── pyproject.toml          # Python package configuration
 └── docs/
@@ -388,9 +352,9 @@ locker --help</code></pre>
                 <h2>Configuration</h2>
                 <p>After installation, the service starts in <strong>permissive mode</strong>, which means it won't lock the system even if the device is disconnected.</p>
 
-                <h3>Step 1: Get Android Device Serial</h3>
-                <p>Connect your Android device via USB and get its serial number:</p>
-                <pre><code>locker get-android-serial</code></pre>
+                <h3>Step 1: List Connected Devices</h3>
+                <p>Connect your Android device via USB and list all connected devices:</p>
+                <pre><code>locker list-devices</code></pre>
                 <p>This will show all connected Android devices with their serial numbers.</p>
 
                 <h3>Step 2: Configure Android Serial</h3>
@@ -400,6 +364,8 @@ locker set-android-serial
 
 # Option 2: Set serial directly
 locker set-android-serial ABC123XYZ</code></pre>
+                <p>After configuration, verify the serial is set:</p>
+                <pre><code>locker get-android-serial</code></pre>
 
                 <h3>Step 3: Add Services to Control</h3>
                 <p>Configure which services should be managed (started on connection, stopped on disconnection):</p>
@@ -456,7 +422,7 @@ sudo journalctl -u locker -f</code></pre>
                     <tbody>
                         <tr>
                             <td><code>locker get-android-serial</code></td>
-                            <td>Get serial numbers of connected Android devices</td>
+                            <td>Get configured Android device serial from config</td>
                         </tr>
                         <tr>
                             <td><code>locker set-android-serial [serial]</code></td>
@@ -487,6 +453,9 @@ sudo journalctl -u locker -f</code></pre>
   "service": {
     "log_level": "INFO",
     "log_file": "/var/log/locker.log"
+  },
+  "network": {
+    "blocked_interfaces": []
   },
   "monitoring": {
     "check_interval_seconds": 5

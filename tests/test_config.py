@@ -10,12 +10,14 @@ import tempfile
 import shutil
 from unittest.mock import patch, MagicMock
 import sys
-import importlib.util
 
 # Add src directory to path
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 src_dir = os.path.join(parent_dir, "src")
 sys.path.insert(0, src_dir)
+
+# Mock pyudev before importing LockService
+sys.modules['pyudev'] = MagicMock()
 
 # Import from package
 from locker.service import LockService
@@ -56,17 +58,23 @@ class TestConfigurationSystem(unittest.TestCase):
         import logging
         logging.disable(logging.NOTSET)
 
-    def test_load_valid_config(self):
+    @patch('signal.signal')
+    def test_load_valid_config(self, mock_signal):
         """Test loading valid configuration"""
         with open(self.config_path, 'w') as f:
             json.dump(self.valid_config, f)
 
         service = LockService(self.config_path, config_dir=self.config_dir)
+        # service.name is automatically added if missing
         self.assertEqual(service.config['service']['name'], 'locker')
         self.assertIn('network', service.config)
         self.assertIn('monitoring', service.config)
+        self.assertEqual(service.config['service']['log_level'], 'CRITICAL')
+        self.assertEqual(service.config['network']['blocked_interfaces'], ['eth0', 'wlan0'])
+        self.assertEqual(service.config['monitoring']['check_interval_seconds'], 5)
 
-    def test_load_config_missing_service_section(self):
+    @patch('signal.signal')
+    def test_load_config_missing_service_section(self, mock_signal):
         """Test loading config with missing service section"""
         invalid_config = self.valid_config.copy()
         del invalid_config['service']
@@ -78,8 +86,10 @@ class TestConfigurationSystem(unittest.TestCase):
             LockService(self.config_path, config_dir=self.config_dir)
 
         self.assertIn('service', str(context.exception))
+        self.assertIn('Missing required config section', str(context.exception))
 
-    def test_load_config_missing_network_section(self):
+    @patch('signal.signal')
+    def test_load_config_missing_network_section(self, mock_signal):
         """Test loading config with missing network section"""
         invalid_config = self.valid_config.copy()
         del invalid_config['network']
@@ -91,8 +101,10 @@ class TestConfigurationSystem(unittest.TestCase):
             LockService(self.config_path, config_dir=self.config_dir)
 
         self.assertIn('network', str(context.exception))
+        self.assertIn('Missing required config section', str(context.exception))
 
-    def test_load_config_missing_monitoring_section(self):
+    @patch('signal.signal')
+    def test_load_config_missing_monitoring_section(self, mock_signal):
         """Test loading config with missing monitoring section"""
         invalid_config = self.valid_config.copy()
         del invalid_config['monitoring']
@@ -104,8 +116,10 @@ class TestConfigurationSystem(unittest.TestCase):
             LockService(self.config_path, config_dir=self.config_dir)
 
         self.assertIn('monitoring', str(context.exception))
+        self.assertIn('Missing required config section', str(context.exception))
 
-    def test_load_config_missing_log_level(self):
+    @patch('signal.signal')
+    def test_load_config_missing_log_level(self, mock_signal):
         """Test loading config with missing log_level"""
         invalid_config = self.valid_config.copy()
         del invalid_config['service']['log_level']
@@ -117,8 +131,10 @@ class TestConfigurationSystem(unittest.TestCase):
             LockService(self.config_path, config_dir=self.config_dir)
 
         self.assertIn('log_level', str(context.exception))
+        self.assertIn('Missing', str(context.exception))
 
-    def test_load_config_missing_blocked_interfaces(self):
+    @patch('signal.signal')
+    def test_load_config_missing_blocked_interfaces(self, mock_signal):
         """Test loading config with missing blocked_interfaces"""
         invalid_config = self.valid_config.copy()
         del invalid_config['network']['blocked_interfaces']
@@ -130,8 +146,10 @@ class TestConfigurationSystem(unittest.TestCase):
             LockService(self.config_path, config_dir=self.config_dir)
 
         self.assertIn('blocked_interfaces', str(context.exception))
+        self.assertIn('Missing', str(context.exception))
 
-    def test_load_config_missing_check_interval(self):
+    @patch('signal.signal')
+    def test_load_config_missing_check_interval(self, mock_signal):
         """Test loading config with missing check_interval_seconds"""
         invalid_config = self.valid_config.copy()
         del invalid_config['monitoring']['check_interval_seconds']
@@ -143,8 +161,10 @@ class TestConfigurationSystem(unittest.TestCase):
             LockService(self.config_path, config_dir=self.config_dir)
 
         self.assertIn('check_interval_seconds', str(context.exception))
+        self.assertIn('Missing', str(context.exception))
 
-    def test_load_config_invalid_json(self):
+    @patch('signal.signal')
+    def test_load_config_invalid_json(self, mock_signal):
         """Test loading config with invalid JSON"""
         with open(self.config_path, 'w') as f:
             f.write("{ invalid json }")
@@ -152,10 +172,12 @@ class TestConfigurationSystem(unittest.TestCase):
         with self.assertRaises(ValueError) as context:
             LockService(self.config_path, config_dir=self.config_dir)
 
+        # The actual error message is "Invalid JSON in config file: ..."
         self.assertIn('Invalid JSON', str(context.exception))
 
-    def test_load_config_with_policies(self):
-        """Test loading config with lock/unlock policies"""
+    @patch('signal.signal')
+    def test_load_config_with_policies(self, mock_signal):
+        """Test loading config with lock/unlock policies (optional fields)"""
         config = self.valid_config.copy()
         config.update({
             "lock_policies": {
@@ -167,7 +189,10 @@ class TestConfigurationSystem(unittest.TestCase):
             json.dump(config, f)
 
         service = LockService(self.config_path, config_dir=self.config_dir)
+        # Policies are optional and should be preserved if present
         self.assertIsNotNone(service.config.get('lock_policies'))
+        self.assertEqual(service.config['lock_policies']['disable_ssh'], True)
+        self.assertEqual(service.config['lock_policies']['disable_network_interfaces'], True)
 
 
 if __name__ == '__main__':

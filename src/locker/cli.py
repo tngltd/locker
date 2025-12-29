@@ -202,8 +202,22 @@ class LockCLI:
         return devices
     
     def get_android_serial_cmd(self):
-        """Get Android serial of connected device"""
+        """Get Android serial from config"""
         print("=== Get Android Serial ===")
+        print()
+        
+        serial = self.get_android_serial()
+        
+        if not serial:
+            print("No Android serial configured.")
+            print()
+            print("Use \"locker set-android-serial\" to configure a device.")
+        else:
+            print(f"Configured Android serial: {serial}")
+    
+    def list_devices_cmd(self):
+        """List all connected Android devices"""
+        print("=== List Connected Devices ===")
         print()
         
         devices = self.get_connected_devices()
@@ -223,10 +237,12 @@ class LockCLI:
         print("-" * 50)
         print()
         
-        if len(devices) == 1:
-            print(f"Serial: {devices[0][0]}")
-        else:
-            print("Use \"locker set-android-serial <serial>\" to configure one of these devices.")
+        configured_serial = self.get_android_serial()
+        if configured_serial:
+            if configured_serial in [d[0] for d in devices]:
+                print(f"Configured device ({configured_serial}) is currently connected.")
+            else:
+                print(f"Configured device ({configured_serial}) is not currently connected.")
     
     def set_android_serial(self, serial: Optional[str] = None):
         """Set Android device serial"""
@@ -325,6 +341,35 @@ class LockCLI:
                 print(f"Service \"{service_name}\" is already in the services list.")
         except Exception as e:
             print(f"Error adding service: {e}")
+    
+    def remove_service(self, service_name: str):
+        """Remove a service from being managed"""
+        print("=== Remove Service ===")
+        print()
+        
+        try:
+            config = self.load_config()
+            if 'services' not in config:
+                config['services'] = []
+            elif not isinstance(config['services'], list):
+                # Convert old format to new format
+                if isinstance(config['services'], dict):
+                    old_stop = config['services'].get('stop_when_locked', [])
+                    old_start = config['services'].get('start_when_unlocked', [])
+                    config['services'] = list(set(old_stop + old_start))
+                else:
+                    config['services'] = []
+            
+            services_list = config['services']
+            if service_name in services_list:
+                services_list.remove(service_name)
+                config['services'] = services_list
+                self.save_config(config)
+                print(f"Service \"{service_name}\" removed. It will no longer be managed by the locker service.")
+            else:
+                print(f"Service \"{service_name}\" is not in the services list.")
+        except Exception as e:
+            print(f"Error removing service: {e}")
     
     def set_mode(self, mode: Optional[str] = None):
         """Set mode to permissive or enforcing"""
@@ -662,6 +707,9 @@ def main():
     add_service_parser = subparsers.add_parser('add-service', help='Add service to be managed (started on connection, stopped on disconnection)')
     add_service_parser.add_argument('service', help='Service name (e.g., ssh, nginx)')
     
+    remove_service_parser = subparsers.add_parser('remove-service', help='Remove service from being managed')
+    remove_service_parser.add_argument('service', help='Service name (e.g., ssh, nginx)')
+    
     # Mode management
     set_mode_parser = subparsers.add_parser('set-mode', help='Set mode (permissive/enforcing)')
     set_mode_parser.add_argument('mode', nargs='?', choices=['permissive', 'enforcing'],
@@ -684,8 +732,12 @@ def main():
         cli.get_android_serial_cmd()
     elif args.command == 'set-android-serial':
         cli.set_android_serial(getattr(args, 'serial', None))
+    elif args.command == 'list-devices':
+        cli.list_devices_cmd()
     elif args.command == 'add-service':
         cli.add_service(args.service)
+    elif args.command == 'remove-service':
+        cli.remove_service(args.service)
     elif args.command == 'set-mode':
         cli.set_mode(getattr(args, 'mode', None))
     elif args.command == 'logs':
