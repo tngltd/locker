@@ -127,8 +127,9 @@ class LockService:
     
     def setup_logging(self):
         """Setup logging configuration"""
-        # Use DEBUG level for verbose logging
-        log_level = logging.DEBUG
+        # Get log level from config, default to INFO
+        log_level_str = self.config.get('service', {}).get('log_level', 'INFO').upper()
+        log_level = getattr(logging, log_level_str, logging.INFO)
 
         # Setup logger
         self.logger = logging.getLogger('locker')
@@ -231,7 +232,7 @@ class LockService:
         """Check if an Android device is configured"""
         return self.android_serial is not None and len(self.android_serial) > 0
     
-    def is_service_running(self, service_name: str) -> bool:
+    def is_service_running(self, service_name: str, log_check: bool = False) -> bool:
         """Check if a service is currently running"""
         try:
             result = subprocess.run(
@@ -239,8 +240,13 @@ class LockService:
                 capture_output=True,
                 timeout=2
             )
-            return result.returncode == 0
-        except Exception:
+            is_running = result.returncode == 0
+            if log_check:
+                self.logger.info(f"Service {service_name} status: {'RUNNING' if is_running else 'STOPPED'}")
+            return is_running
+        except Exception as e:
+            if log_check:
+                self.logger.warning(f"Error checking service {service_name} status: {e}")
             return False
     
     def lock_system(self):
@@ -301,11 +307,16 @@ class LockService:
             # Stop configured services (only if running)
             services_to_stop = self.config.get('services', [])
             for service in services_to_stop:
-                if self.is_service_running(service):
-                    self.logger.info(f"Stopping service: {service}")
-                    subprocess.run(['systemctl', 'stop', service], check=False)
+                self.logger.info(f"Checking if service {service} is running...")
+                if self.is_service_running(service, log_check=True):
+                    self.logger.info(f"Service {service} is running - stopping it")
+                    result = subprocess.run(['systemctl', 'stop', service], check=False, capture_output=True, text=True, timeout=10)
+                    if result.returncode == 0:
+                        self.logger.info(f"Service {service} stopped successfully")
+                    else:
+                        self.logger.warning(f"Failed to stop service {service}: {result.stderr}")
                 else:
-                    self.logger.debug(f"Service {service} is already stopped")
+                    self.logger.info(f"Service {service} is already stopped")
             
             self.logger.info("System locked successfully")
             
@@ -350,11 +361,16 @@ class LockService:
             # Start configured services (only if stopped)
             services_to_start = self.config.get('services', [])
             for service in services_to_start:
-                if not self.is_service_running(service):
-                    self.logger.info(f"Starting service: {service}")
-                    subprocess.run(['systemctl', 'start', service], check=False)
+                self.logger.info(f"Checking if service {service} is running...")
+                if not self.is_service_running(service, log_check=True):
+                    self.logger.info(f"Service {service} is not running - starting it")
+                    result = subprocess.run(['systemctl', 'start', service], check=False, capture_output=True, text=True, timeout=10)
+                    if result.returncode == 0:
+                        self.logger.info(f"Service {service} started successfully")
+                    else:
+                        self.logger.warning(f"Failed to start service {service}: {result.stderr}")
                 else:
-                    self.logger.debug(f"Service {service} is already running")
+                    self.logger.info(f"Service {service} is already running")
             
             self.logger.info("System unlocked successfully")
             
@@ -516,18 +532,18 @@ class LockService:
         
         while self.running:
             try:
+                # Check service status (always check, even if no device configured)
+                services = self.config.get('services', [])
+                running_services = [s for s in services if self.is_service_running(s)]
+                
                 if not self.is_configured():
                     # No device configured - log status and wait
-                    self.logger.info("Monitor: No Android device configured - system unlocked")
+                    self.logger.info(f"Monitor: No Android device configured, Mode: {self.mode}, System: UNLOCKED, Services running: {running_services}")
                     time.sleep(check_interval)
                     continue
                 
                 # Check if configured device is connected
                 is_connected = self.is_configured_device_connected()
-                
-                # Check service status
-                services = self.config.get('services', [])
-                running_services = [s for s in services if self.is_service_running(s)]
                 
                 # Log current status every iteration
                 device_status = "CONNECTED" if is_connected else "DISCONNECTED"
