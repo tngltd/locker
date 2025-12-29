@@ -250,12 +250,6 @@ class LockService:
         try:
             lock_policies = self.config.get('lock_policies', {})
             
-            # Disable SSH if configured
-            if lock_policies.get('disable_ssh', False):
-                if self.is_service_running('ssh'):
-                    self.logger.info("Stopping SSH")
-                    subprocess.run(['systemctl', 'stop', 'ssh'], check=False)
-            
             # Disable network interfaces if configured
             if lock_policies.get('disable_network_interfaces', False):
                 blocked_interfaces = self.config.get('network', {}).get('blocked_interfaces', [])
@@ -297,12 +291,6 @@ class LockService:
                 for interface in blocked_interfaces:
                     self.logger.info(f"Restoring network interface: {interface}")
                     subprocess.run(['ip', 'link', 'set', interface, 'up'], check=False)
-            
-            # Restore SSH if configured
-            if unlock_policies.get('restore_ssh', False):
-                if not self.is_service_running('ssh'):
-                    self.logger.info("Starting SSH")
-                    subprocess.run(['systemctl', 'start', 'ssh'], check=False)
             
             # Restore all ports (clear iptables) if configured
             if unlock_policies.get('restore_all_ports', False):
@@ -481,26 +469,34 @@ class LockService:
             try:
                 if not self.is_configured():
                     # No device configured - just wait
+                    self.logger.debug("Monitor loop: No Android device configured")
                     time.sleep(check_interval)
                     continue
                 
                 # Only enforce locking in enforcing mode
                 if self.mode != 'enforcing':
+                    self.logger.debug(f"Monitor loop: Permissive mode - device check skipped")
                     time.sleep(check_interval)
                     continue
                 
                 # Check if configured device is connected
                 is_connected = self.is_configured_device_connected()
                 
+                # Debug log device status
+                device_status = "CONNECTED" if is_connected else "DISCONNECTED"
+                self.logger.debug(f"Monitor loop: Device {self.android_serial} status: {device_status}, Mode: {self.mode}")
+                
                 if is_connected and not was_connected:
                     # Device just connected - unlock
                     self.logger.info(f"Android device {self.android_serial} connected - unlocking system")
+                    self.logger.debug("Monitor loop: Transitioning to UNLOCKED state")
                     self.unlock_system()
                     was_connected = True
                 
                 elif not is_connected and was_connected:
                     # Device just disconnected - lock
                     self.logger.info(f"Android device {self.android_serial} disconnected - locking system")
+                    self.logger.debug("Monitor loop: Transitioning to LOCKED state")
                     self.lock_system()
                     was_connected = False
                 
@@ -510,7 +506,13 @@ class LockService:
                     any_running = any(self.is_service_running(s) for s in services)
                     if any_running:
                         self.logger.info("Configured device not connected - locking system")
+                        self.logger.debug(f"Monitor loop: Device disconnected, services running: {services} - locking system")
                         self.lock_system()
+                    else:
+                        self.logger.debug(f"Monitor loop: Device disconnected, no services running - system already locked")
+                else:
+                    # Device is connected
+                    self.logger.debug("Monitor loop: Device connected - system unlocked")
                 
                 time.sleep(check_interval)
                 

@@ -180,8 +180,8 @@ class TestConfigurationSystem(unittest.TestCase):
         """Test loading config with lock/unlock policies (optional fields)"""
         config = self.valid_config.copy()
         config.update({
+            "services": ["ssh"],
             "lock_policies": {
-                "disable_ssh": True,
                 "disable_network_interfaces": True
             }
         })
@@ -191,7 +191,7 @@ class TestConfigurationSystem(unittest.TestCase):
         service = LockService(self.config_path, config_dir=self.config_dir)
         # Policies are optional and should be preserved if present
         self.assertIsNotNone(service.config.get('lock_policies'))
-        self.assertEqual(service.config['lock_policies']['disable_ssh'], True)
+        self.assertIn('ssh', service.config.get('services', []))
         self.assertEqual(service.config['lock_policies']['disable_network_interfaces'], True)
 
 

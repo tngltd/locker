@@ -48,14 +48,13 @@ class TestSystemLockdown(unittest.TestCase):
             "monitoring": {
                 "check_interval_seconds": 1
             },
+            "services": ["ssh"],
             "lock_policies": {
-                "disable_ssh": True,
                 "disable_network_interfaces": True,
                 "block_all_ports": True
             },
             "unlock_policies": {
                 "restore_network_interfaces": True,
-                "restore_ssh": True,
                 "restore_all_ports": True
             }
         }
@@ -70,25 +69,6 @@ class TestSystemLockdown(unittest.TestCase):
         shutil.rmtree(self.test_dir)
         import logging
         logging.disable(logging.NOTSET)
-
-    @patch('locker.service.subprocess.run')
-    @skip_if_macos("Test checks for is_locked attribute which doesn't exist in stateless implementation")
-    def test_lock_system_disables_ssh(self, mock_subprocess):
-        """Test that lock_system disables SSH"""
-        service = LockService(self.config_path, config_dir=self.config_dir)
-        # Note: is_locked attribute doesn't exist - implementation is stateless
-        
-        service.lock_system()
-        
-        # Verify systemctl stop was called (implementation uses stop, not disable)
-        systemctl_calls = [c for c in mock_subprocess.call_args_list if len(c[0]) > 0 and 'systemctl' in str(c[0][0])]
-        stop_found = False
-        for call_args in systemctl_calls:
-            args = call_args[0][0] if isinstance(call_args[0], (list, tuple)) else call_args[0]
-            if isinstance(args, list):
-                if 'stop' in args and 'ssh' in args:
-                    stop_found = True
-        self.assertTrue(stop_found, "systemctl stop ssh not called")
 
     @patch('locker.service.subprocess.run')
     def test_lock_system_disables_network_interfaces(self, mock_subprocess):

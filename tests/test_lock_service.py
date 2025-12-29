@@ -52,14 +52,13 @@ class TestLockService(unittest.TestCase):
             "monitoring": {
                 "check_interval_seconds": 5
             },
+            "services": ["ssh"],
             "lock_policies": {
-                "disable_ssh": True,
                 "disable_network_interfaces": True,
                 "block_all_ports": True
             },
             "unlock_policies": {
                 "restore_network_interfaces": True,
-                "restore_ssh": True,
                 "restore_all_ports": True
             }
         }
@@ -302,8 +301,8 @@ class TestLockService(unittest.TestCase):
         
         service = LockService(self.config_path, config_dir=self.config_dir)
         service.config.update({
+            'services': ['ssh'],
             'lock_policies': {
-                'disable_ssh': True,
                 'disable_network_interfaces': True,
                 'block_all_ports': True
             }
@@ -319,8 +318,7 @@ class TestLockService(unittest.TestCase):
         """Test that lock_system can be called multiple times (stateless implementation)"""
         service = LockService(self.config_path, config_dir=self.config_dir)
         service.config.update({
-            'lock_policies': {'disable_ssh': True},
-            'services': ['nginx']
+            'services': ['ssh', 'nginx']
         })
         
         # Mock is_service_running to return True first time, False second time
@@ -339,7 +337,7 @@ class TestLockService(unittest.TestCase):
         mock_subprocess.side_effect = Exception("System error")
         
         service = LockService(self.config_path, config_dir=self.config_dir)
-        service.config.update({'lock_policies': {'disable_ssh': True}})
+        service.config.update({'services': ['ssh']})
         
         # Should not raise
         service.lock_system()
@@ -355,10 +353,9 @@ class TestLockService(unittest.TestCase):
         service.config.update({
             'unlock_policies': {
                 'restore_network_interfaces': True,
-                'restore_ssh': True,
                 'restore_all_ports': True
             },
-            'services': ['nginx', 'apache']
+            'services': ['ssh', 'nginx', 'apache']
         })
         
         service.unlock_system()
@@ -387,7 +384,7 @@ class TestLockService(unittest.TestCase):
         mock_subprocess.side_effect = Exception("System error")
         
         service = LockService(self.config_path, config_dir=self.config_dir)
-        service.config.update({'unlock_policies': {'restore_ssh': True}})
+        service.config.update({'services': ['ssh']})
         
         # Should not raise
         service.unlock_system()
@@ -481,14 +478,13 @@ class TestLockService(unittest.TestCase):
         
         service = LockService(self.config_path, config_dir=self.config_dir)
         service.config.update({
+            'services': ['ssh'],
             'lock_policies': {
-                'disable_ssh': False,
                 'disable_network_interfaces': False,
                 'block_all_ports': False
             },
             'unlock_policies': {
                 'restore_network_interfaces': True,
-                'restore_ssh': True,
                 'restore_all_ports': True
             }
         })
@@ -700,8 +696,8 @@ class TestLockServiceConfig(unittest.TestCase):
         service = LockService(self.config_path, config_dir=self.config_dir)
         # Should load successfully, policies are optional
         self.assertIsInstance(service.config, dict)
-        # Policies should default to True when not present
-        self.assertTrue(service.config.get('lock_policies', {}).get('disable_ssh', True))
+        # Services list should exist (defaults to empty)
+        self.assertIsInstance(service.config.get('services', []), list)
     
     def test_get_system_info_success(self):
         """Test get_system_info reads /etc/os-release"""

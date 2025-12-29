@@ -1132,6 +1132,43 @@ class TestCLICoverage(unittest.TestCase):
         output_text = ' '.join(output)
         self.assertIn("No log file", output_text)
     
+    def test_logs_debug_mode(self):
+        """Test logs command with debug flag filters DEBUG logs"""
+        os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
+        with open(self.log_file, 'w') as f:
+            f.write("2025-01-01 10:00:00 - locker - INFO - Test info log\n")
+            f.write("2025-01-01 10:00:01 - locker - DEBUG - Test debug log\n")
+            f.write("2025-01-01 10:00:02 - locker - WARNING - Test warning log\n")
+            f.write("2025-01-01 10:00:03 - locker - DEBUG - Another debug log\n")
+        
+        with patch.object(self.cli, 'load_config', return_value={'service': {'log_file': self.log_file}}):
+            output = []
+            with patch('builtins.print', side_effect=lambda *a, **kw: output.extend(str(x) for x in a)):
+                self.cli.logs(10, debug=True)
+        
+        output_text = '\n'.join(output)
+        self.assertIn("DEBUG", output_text)
+        self.assertIn("Test debug log", output_text)
+        self.assertIn("Another debug log", output_text)
+        # Should not contain non-DEBUG logs
+        self.assertNotIn("Test info log", output_text)
+        self.assertNotIn("Test warning log", output_text)
+    
+    def test_logs_debug_mode_no_debug_logs(self):
+        """Test logs command with debug flag when no DEBUG logs exist"""
+        os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
+        with open(self.log_file, 'w') as f:
+            f.write("2025-01-01 10:00:00 - locker - INFO - Test info log\n")
+            f.write("2025-01-01 10:00:01 - locker - WARNING - Test warning log\n")
+        
+        with patch.object(self.cli, 'load_config', return_value={'service': {'log_file': self.log_file}}):
+            output = []
+            with patch('builtins.print', side_effect=lambda *a, **kw: output.extend(str(x) for x in a)):
+                self.cli.logs(10, debug=True)
+        
+        output_text = ' '.join(output)
+        self.assertIn("No DEBUG level logs found", output_text)
+    
     def test_is_service_running_systemctl_exception(self):
         """Test is_service_running handles systemctl exception"""
         with patch('subprocess.run', side_effect=Exception("systemctl error")):
@@ -1956,7 +1993,7 @@ class TestMainFunctions(unittest.TestCase):
                                 if cmd == 'set-android-serial':
                                     mock_method.assert_called_once_with(None)
                                 elif cmd == 'logs':
-                                    mock_method.assert_called_once_with(50)
+                                    mock_method.assert_called_once_with(50, False)
                                 else:
                                     mock_method.assert_called_once()
                             except SystemExit:
