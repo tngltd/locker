@@ -56,6 +56,16 @@ else
     echo "To start: lockerd"
 fi
 
+# Ensure log directory exists and create log file with proper permissions
+LOG_FILE="/var/log/locker.log"
+if [ ! -f "$LOG_FILE" ]; then
+    echo "Creating log file at $LOG_FILE"
+    touch "$LOG_FILE"
+    chmod 644 "$LOG_FILE"
+    chown root:root "$LOG_FILE"
+    echo "Log file created."
+fi
+
 # Create log rotation configuration
 cat > /etc/logrotate.d/locker << 'EOF'
 /var/log/locker.log {

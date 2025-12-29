@@ -134,11 +134,20 @@ class LockService:
         # Setup logger
         self.logger = logging.getLogger('locker')
         self.logger.setLevel(log_level)
+        
+        # Clear any existing handlers to avoid duplicates
+        self.logger.handlers.clear()
 
         # Create formatter
         formatter = logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
+
+        # Setup console handler first (for error visibility)
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)  # Less verbose on console
+        console_handler.setFormatter(formatter)
+        self.logger.addHandler(console_handler)
 
         # Setup file handler (always try to create)
         try:
@@ -152,15 +161,12 @@ class LockService:
             file_handler.setLevel(logging.DEBUG)  # Verbose logging to file
             file_handler.setFormatter(formatter)
             self.logger.addHandler(file_handler)
+            # Log successful file handler setup
+            self.logger.info(f"Logging to file: {log_file_path}")
         except (OSError, PermissionError) as e:
-            # In test environments, file handler might fail - skip it
-            pass
-
-        # Setup console handler (always add for visibility)
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.INFO)  # Less verbose on console
-        console_handler.setFormatter(formatter)
-        self.logger.addHandler(console_handler)
+            # Log error to console handler (which is already added)
+            self.logger.warning(f"Failed to setup file logging to {log_file_path}: {e}")
+            self.logger.warning("Logs will only be written to console/systemd journal")
     
     def log_config(self):
         """Log current configuration (sanitized for security)"""
@@ -517,6 +523,7 @@ class LockService:
             # In permissive mode, just wait
             if self.mode == 'permissive':
                 while self.running:
+                    self.logger.info(f"Waiting for Android device to be configured...")
                     time.sleep(self.config.get('monitoring', {}).get('check_interval_seconds', 5))
                 return
         
