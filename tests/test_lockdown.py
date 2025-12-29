@@ -74,7 +74,21 @@ class TestSystemLockdown(unittest.TestCase):
     def test_lock_system_disables_network_interfaces(self, mock_subprocess):
         """Test that lock_system disables network interfaces"""
         service = LockService(self.config_path, config_dir=self.config_dir)
-        service.is_locked = False
+        
+        # Mock ip link show to return UP status (so the interface will be disabled)
+        def mock_subprocess_side_effect(*args, **kwargs):
+            if isinstance(args[0], list) and len(args[0]) >= 4:
+                if args[0][0] == 'ip' and args[0][1] == 'link' and args[0][2] == 'show':
+                    # Return mock result indicating interface is UP
+                    mock_result = type('MockResult', (), {
+                        'returncode': 0,
+                        'stdout': f'{args[0][3]}: state UP'
+                    })()
+                    return mock_result
+            # For other calls, return default mock
+            return type('MockResult', (), {'returncode': 0})()
+        
+        mock_subprocess.side_effect = mock_subprocess_side_effect
         
         service.lock_system()
         
@@ -126,6 +140,21 @@ class TestSystemLockdown(unittest.TestCase):
     def test_unlock_system_restores_network_interfaces(self, mock_subprocess):
         """Test that unlock_system restores network interfaces"""
         service = LockService(self.config_path, config_dir=self.config_dir)
+        
+        # Mock ip link show to return DOWN status (so the interface will be enabled)
+        def mock_subprocess_side_effect(*args, **kwargs):
+            if isinstance(args[0], list) and len(args[0]) >= 4:
+                if args[0][0] == 'ip' and args[0][1] == 'link' and args[0][2] == 'show':
+                    # Return mock result indicating interface is DOWN
+                    mock_result = type('MockResult', (), {
+                        'returncode': 0,
+                        'stdout': f'{args[0][3]}: state DOWN'
+                    })()
+                    return mock_result
+            # For other calls, return default mock
+            return type('MockResult', (), {'returncode': 0})()
+        
+        mock_subprocess.side_effect = mock_subprocess_side_effect
         
         service.unlock_system()
         

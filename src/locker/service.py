@@ -254,15 +254,49 @@ class LockService:
             if lock_policies.get('disable_network_interfaces', False):
                 blocked_interfaces = self.config.get('network', {}).get('blocked_interfaces', [])
                 for interface in blocked_interfaces:
-                    self.logger.info(f"Disabling network interface: {interface}")
-                    subprocess.run(['ip', 'link', 'set', interface, 'down'], check=False)
+                    # Check if interface exists and is up before disabling
+                    try:
+                        result = subprocess.run(
+                            ['ip', 'link', 'show', interface],
+                            capture_output=True,
+                            text=True,
+                            timeout=2
+                        )
+                        if result.returncode == 0 and 'state UP' in result.stdout:
+                            self.logger.info(f"Disabling network interface: {interface}")
+                            subprocess.run(['ip', 'link', 'set', interface, 'down'], check=False)
+                        else:
+                            self.logger.debug(f"Interface {interface} is already down or does not exist")
+                    except Exception as e:
+                        self.logger.debug(f"Error checking interface {interface} status: {e}")
+                        # Try to disable anyway (idempotent)
+                        subprocess.run(['ip', 'link', 'set', interface, 'down'], check=False)
             
             # Block all ports with iptables if configured
             if lock_policies.get('block_all_ports', False):
-                self.logger.info("Blocking all ports with iptables")
-                subprocess.run(['iptables', '-A', 'INPUT', '-j', 'DROP'], check=False)
-                subprocess.run(['iptables', '-A', 'OUTPUT', '-j', 'DROP'], check=False)
-                subprocess.run(['iptables', '-A', 'FORWARD', '-j', 'DROP'], check=False)
+                # Check if iptables rules already exist before adding
+                try:
+                    result = subprocess.run(
+                        ['iptables', '-C', 'INPUT', '-j', 'DROP'],
+                        capture_output=True,
+                        text=True,
+                        timeout=2
+                    )
+                    if result.returncode != 0:
+                        # Rule doesn't exist, add it
+                        self.logger.info("Blocking all ports with iptables")
+                        subprocess.run(['iptables', '-A', 'INPUT', '-j', 'DROP'], check=False)
+                        subprocess.run(['iptables', '-A', 'OUTPUT', '-j', 'DROP'], check=False)
+                        subprocess.run(['iptables', '-A', 'FORWARD', '-j', 'DROP'], check=False)
+                    else:
+                        self.logger.debug("iptables DROP rules already exist")
+                except Exception as e:
+                    self.logger.debug(f"Error checking iptables rules: {e}")
+                    # Try to add rules anyway (may create duplicates but that's acceptable)
+                    self.logger.info("Blocking all ports with iptables")
+                    subprocess.run(['iptables', '-A', 'INPUT', '-j', 'DROP'], check=False)
+                    subprocess.run(['iptables', '-A', 'OUTPUT', '-j', 'DROP'], check=False)
+                    subprocess.run(['iptables', '-A', 'FORWARD', '-j', 'DROP'], check=False)
             
             # Stop configured services (only if running)
             services_to_stop = self.config.get('services', [])
@@ -289,8 +323,23 @@ class LockService:
             if unlock_policies.get('restore_network_interfaces', False):
                 blocked_interfaces = self.config.get('network', {}).get('blocked_interfaces', [])
                 for interface in blocked_interfaces:
-                    self.logger.info(f"Restoring network interface: {interface}")
-                    subprocess.run(['ip', 'link', 'set', interface, 'up'], check=False)
+                    # Check if interface exists and is down before enabling
+                    try:
+                        result = subprocess.run(
+                            ['ip', 'link', 'show', interface],
+                            capture_output=True,
+                            text=True,
+                            timeout=2
+                        )
+                        if result.returncode == 0 and 'state DOWN' in result.stdout:
+                            self.logger.info(f"Restoring network interface: {interface}")
+                            subprocess.run(['ip', 'link', 'set', interface, 'up'], check=False)
+                        else:
+                            self.logger.debug(f"Interface {interface} is already up or does not exist")
+                    except Exception as e:
+                        self.logger.debug(f"Error checking interface {interface} status: {e}")
+                        # Try to enable anyway (idempotent)
+                        subprocess.run(['ip', 'link', 'set', interface, 'up'], check=False)
             
             # Restore all ports (clear iptables) if configured
             if unlock_policies.get('restore_all_ports', False):

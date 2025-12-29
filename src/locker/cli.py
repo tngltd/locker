@@ -670,13 +670,23 @@ class LockCLI:
                 except Exception as e:
                     print(f"Error restoring interface {interface}: {e}")
             
-            # Start configured services
+            # Start configured services (only if not running)
             services = config.get('services', [])
-            for service in services:
+            for service_name in services:
                 try:
-                    subprocess.run(['systemctl', 'start', service], check=False, timeout=5)
+                    # Check if service is already running before starting
+                    result = subprocess.run(
+                        ['systemctl', 'is-active', '--quiet', service_name],
+                        capture_output=True,
+                        timeout=2
+                    )
+                    if result.returncode != 0:
+                        # Service is not running, start it
+                        subprocess.run(['systemctl', 'start', service_name], check=False, timeout=5)
+                    else:
+                        print(f"Service {service_name} is already running")
                 except Exception as e:
-                    print(f"Error starting service {service}: {e}")
+                    print(f"Error starting service {service_name}: {e}")
             
             # Clear iptables
             try:
