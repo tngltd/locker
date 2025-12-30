@@ -11,7 +11,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
     cat > "$CONFIG_FILE" << 'EOF'
 {
   "service": {
-    "log_level": "INFO",
+    "log_level": "DEBUG",
     "log_file": "/var/log/locker.log",
     "name": "locker"
   },

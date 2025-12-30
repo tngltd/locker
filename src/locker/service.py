@@ -134,7 +134,6 @@ class LockService:
         # Setup logger
         self.logger = logging.getLogger('locker')
         self.logger.setLevel(log_level)
-        
         # Clear any existing handlers to avoid duplicates
         self.logger.handlers.clear()
 
