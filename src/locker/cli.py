@@ -638,14 +638,6 @@ class LockCLI:
         
         try:
             config = self.load_config()
-            blocked_interfaces = config.get('network', {}).get('blocked_interfaces', [])
-            
-            # Restore network interfaces
-            for interface in blocked_interfaces:
-                try:
-                    subprocess.run(['ip', 'link', 'set', interface, 'up'], check=False, timeout=5)
-                except Exception as e:
-                    print(f"Error restoring interface {interface}: {e}")
             
             # Start configured services (only if not running)
             services = config.get('services', [])

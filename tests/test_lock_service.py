@@ -46,9 +46,6 @@ class TestLockService(unittest.TestCase):
                 "log_level": "CRITICAL",
                 "log_file": self.log_file
             },
-            "network": {
-                "blocked_interfaces": ["eth0", "wlan0"]
-            },
             "monitoring": {
                 "check_interval_seconds": 5
             },
@@ -615,7 +612,7 @@ class TestLockServiceConfig(unittest.TestCase):
             self.assertIsNotNone(service.config)
             # Should have default config
             self.assertIn('service', service.config)
-            self.assertIn('network', service.config)
+            # Network section removed - no longer part of config
     
     
     def test_load_config_invalid_json(self):
@@ -630,7 +627,7 @@ class TestLockServiceConfig(unittest.TestCase):
     
     def test_validate_config_missing_service(self):
         """Test config validation with missing service section"""
-        config = {"network": {}, "monitoring": {}}
+        config = {"monitoring": {}}
         with open(self.config_path, 'w') as f:
             json.dump(config, f)
         
@@ -639,25 +636,12 @@ class TestLockServiceConfig(unittest.TestCase):
         
         self.assertIn('service', str(context.exception))
     
-    def test_validate_config_missing_network(self):
-        """Test config validation with missing network section"""
-        config = {
-            "service": {"log_level": "INFO", "log_file": "/tmp/test.log"},
-            "monitoring": {"check_interval_seconds": 5}
-        }
-        with open(self.config_path, 'w') as f:
-            json.dump(config, f)
-        
-        with self.assertRaises(ValueError) as context:
-            LockService(self.config_path, config_dir=self.config_dir)
-        
-        self.assertIn('network', str(context.exception))
+    # Removed test_validate_config_missing_network - network section no longer exists
     
     def test_validate_config_invalid_mode(self):
         """Test config validation with invalid mode"""
         config = {
             "service": {"log_level": "INFO", "log_file": "/tmp/test.log"},
-            "network": {"blocked_interfaces": []},
             "monitoring": {"check_interval_seconds": 5},
             "mode": "invalid_mode"
         }
@@ -672,8 +656,7 @@ class TestLockServiceConfig(unittest.TestCase):
     def test_validate_config_missing_monitoring(self):
         """Test config validation with missing monitoring section"""
         config = {
-            "service": {"log_level": "INFO", "log_file": "/tmp/test.log"},
-            "network": {"blocked_interfaces": []}
+            "service": {"log_level": "INFO", "log_file": "/tmp/test.log"}
         }
         with open(self.config_path, 'w') as f:
             json.dump(config, f)
@@ -687,7 +670,6 @@ class TestLockServiceConfig(unittest.TestCase):
         """Test loading config without lock/unlock policies"""
         config = {
             "service": {"log_level": "CRITICAL", "log_file": "/tmp/test.log"},
-            "network": {"blocked_interfaces": []},
             "monitoring": {"check_interval_seconds": 5}
         }
         with open(self.config_path, 'w') as f:
@@ -703,7 +685,6 @@ class TestLockServiceConfig(unittest.TestCase):
         """Test get_system_info reads /etc/os-release"""
         config = {
             "service": {"log_level": "CRITICAL", "log_file": "/tmp/test.log"},
-            "network": {"blocked_interfaces": []},
             "monitoring": {"check_interval_seconds": 5}
         }
         with open(self.config_path, 'w') as f:
@@ -718,7 +699,6 @@ class TestLockServiceConfig(unittest.TestCase):
         """Test get_system_info when file not found"""
         config = {
             "service": {"log_level": "CRITICAL", "log_file": "/tmp/test.log"},
-            "network": {"blocked_interfaces": []},
             "monitoring": {"check_interval_seconds": 5}
         }
         with open(self.config_path, 'w') as f:
@@ -748,12 +728,6 @@ class TestLockServiceMain(unittest.TestCase):
                 "log_file": os.path.join(self.test_dir, 'test.log'),
                 "pid_file": os.path.join(self.test_dir, 'test.pid'),
                 "config_file": self.config_path
-            },
-            "network": {
-                "usb_interface": "usb0",
-                "blocked_interfaces": ["eth0", "wlan0"],
-                "allowed_ports": [],
-                "blocked_ports": [22, 80, 443]
             },
             "monitoring": {
                 "check_interval_seconds": 5

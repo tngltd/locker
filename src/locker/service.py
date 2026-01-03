@@ -71,7 +71,6 @@ class LockService:
                     # Last resort: minimal config
                     config = {
                         "service": {"log_level": "INFO", "log_file": "/var/log/locker.log", "name": "locker"},
-                        "network": {"blocked_interfaces": []},
                         "monitoring": {"check_interval_seconds": 5},
                         "mode": "permissive",
                         "android_serial": None,
@@ -86,7 +85,7 @@ class LockService:
     
     def validate_config(self, config: Dict):
         """Validate configuration structure"""
-        required_sections = ['service', 'monitoring', 'network']
+        required_sections = ['service', 'monitoring']
         for section in required_sections:
             if section not in config:
                 raise ValueError(f"Missing required config section: {section}")
@@ -102,10 +101,6 @@ class LockService:
         # Validate monitoring section
         if 'check_interval_seconds' not in config['monitoring']:
             raise ValueError("Missing \"check_interval_seconds\" in monitoring config")
-        
-        # Validate network section
-        if 'blocked_interfaces' not in config['network']:
-            raise ValueError("Missing \"blocked_interfaces\" in network config")
         
         # Validate mode
         mode = config.get('mode', 'permissive')
@@ -188,11 +183,7 @@ class LockService:
             self.logger.info(f"  Log Level: {config_copy.get('service', {}).get('log_level', 'INFO')}")
             self.logger.info(f"  Log File: {config_copy.get('service', {}).get('log_file', '/var/log/locker.log')}")
             
-            # Log network config if present
-            if 'network' in config_copy:
-                blocked_interfaces = config_copy.get('network', {}).get('blocked_interfaces', [])
-                if blocked_interfaces:
-                    self.logger.info(f"  Blocked Interfaces: {blocked_interfaces}")
+            # Network config logging removed (no longer used)
         except Exception as e:
             self.logger.warning(f"Error logging configuration: {e}")
     
@@ -261,28 +252,6 @@ class LockService:
         try:
             lock_policies = self.config.get('lock_policies', {})
             
-            # Disable network interfaces if configured
-            if lock_policies.get('disable_network_interfaces', False):
-                blocked_interfaces = self.config.get('network', {}).get('blocked_interfaces', [])
-                for interface in blocked_interfaces:
-                    # Check if interface exists and is up before disabling
-                    try:
-                        result = subprocess.run(
-                            ['ip', 'link', 'show', interface],
-                            capture_output=True,
-                            text=True,
-                            timeout=2
-                        )
-                        if result.returncode == 0 and 'state UP' in result.stdout:
-                            self.logger.info(f"Disabling network interface: {interface}")
-                            subprocess.run(['ip', 'link', 'set', interface, 'down'], check=False)
-                        else:
-                            self.logger.debug(f"Interface {interface} is already down or does not exist")
-                    except Exception as e:
-                        self.logger.debug(f"Error checking interface {interface} status: {e}")
-                        # Try to disable anyway (idempotent)
-                        subprocess.run(['ip', 'link', 'set', interface, 'down'], check=False)
-            
             # Block all ports with iptables if configured
             if lock_policies.get('block_all_ports', False):
                 # Check if iptables rules already exist before adding
@@ -334,28 +303,6 @@ class LockService:
         
         try:
             unlock_policies = self.config.get('unlock_policies', {})
-            
-            # Restore network interfaces if configured
-            if unlock_policies.get('restore_network_interfaces', False):
-                blocked_interfaces = self.config.get('network', {}).get('blocked_interfaces', [])
-                for interface in blocked_interfaces:
-                    # Check if interface exists and is down before enabling
-                    try:
-                        result = subprocess.run(
-                            ['ip', 'link', 'show', interface],
-                            capture_output=True,
-                            text=True,
-                            timeout=2
-                        )
-                        if result.returncode == 0 and 'state DOWN' in result.stdout:
-                            self.logger.info(f"Restoring network interface: {interface}")
-                            subprocess.run(['ip', 'link', 'set', interface, 'up'], check=False)
-                        else:
-                            self.logger.debug(f"Interface {interface} is already up or does not exist")
-                    except Exception as e:
-                        self.logger.debug(f"Error checking interface {interface} status: {e}")
-                        # Try to enable anyway (idempotent)
-                        subprocess.run(['ip', 'link', 'set', interface, 'up'], check=False)
             
             # Restore all ports (clear iptables) if configured
             if unlock_policies.get('restore_all_ports', False):

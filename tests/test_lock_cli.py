@@ -43,9 +43,6 @@ class TestLockCLI(unittest.TestCase):
             "service": {
                 "name": "locker",
                 "log_file": self.log_file
-            },
-            "network": {
-                "blocked_interfaces": ["eth0", "wlan0"]
             }
         }
         
@@ -189,7 +186,7 @@ class TestLockCLI(unittest.TestCase):
         
         with patch('subprocess.run') as mock_subprocess:
             mock_subprocess.return_value = Mock(returncode=0)
-            with patch.object(self.cli, 'load_config', return_value={'network': {'blocked_interfaces': ['eth0']}}):
+            with patch.object(self.cli, 'load_config', return_value={'network': {}}):
                 output = []
                 def mock_print(*args, **kwargs):
                     output.append(' '.join(str(a) for a in args))
@@ -275,9 +272,6 @@ class TestLockCLIEdgeCases(unittest.TestCase):
             "service": {
                 "name": "locker",
                 "log_file": self.log_file
-            },
-            "network": {
-                "blocked_interfaces": ["eth0", "wlan0"]
             }
         }
         
@@ -407,7 +401,7 @@ class TestLockCLIEdgeCases(unittest.TestCase):
         
         output = []
         with patch('builtins.print', side_effect=lambda *a, **kw: output.append(' '.join(str(x) for x in a))):
-            with patch.object(self.cli, 'load_config', return_value={'network': {'blocked_interfaces': []}}):
+            with patch.object(self.cli, 'load_config', return_value={'network': {}}):
                 self.cli.emergency_unlock()
         
         self.assertTrue(any('Error' in o for o in output))
@@ -449,8 +443,7 @@ class TestLockCLIMain(unittest.TestCase):
         self.config_path = os.path.join(self.test_dir, 'config.json')
         
         test_config = {
-            "service": {"name": "locker", "log_file": "/tmp/test.log"},
-            "network": {"blocked_interfaces": ["eth0"]}
+            "service": {"name": "locker", "log_file": "/tmp/test.log"}
         }
         
         with open(self.config_path, 'w') as f:

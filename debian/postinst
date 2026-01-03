@@ -15,9 +15,6 @@ if [ ! -f "$CONFIG_FILE" ]; then
     "log_file": "/var/log/locker.log",
     "name": "locker"
   },
-  "network": {
-    "blocked_interfaces": []
-  },
   "monitoring": {
     "check_interval_seconds": 5
   },

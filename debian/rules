@@ -29,7 +29,7 @@ override_dh_auto_install:
 	if [ -f $(CURDIR)/config/config.json ]; then \
 		install -m 644 $(CURDIR)/config/config.json $(CURDIR)/debian/locker/etc/locker/config.json; \
 	else \
-		echo '{"service":{"log_level":"INFO","log_file":"/var/log/locker.log","name":"locker"},"network":{"blocked_interfaces":[]},"monitoring":{"check_interval_seconds":5},"mode":"permissive","android_serial":null,"services":[]}' > $(CURDIR)/debian/locker/etc/locker/config.json; \
+		echo '{"service":{"log_level":"INFO","log_file":"/var/log/locker.log","name":"locker"},"monitoring":{"check_interval_seconds":5},"mode":"permissive","android_serial":null,"services":[]}' > $(CURDIR)/debian/locker/etc/locker/config.json; \
 		chmod 644 $(CURDIR)/debian/locker/etc/locker/config.json; \
 	fi
 	

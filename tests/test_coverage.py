@@ -47,9 +47,6 @@ class TestServiceCoverage(unittest.TestCase):
                 "log_level": "CRITICAL",
                 "log_file": self.log_file
             },
-            "network": {
-                "blocked_interfaces": ["eth0", "wlan0"]
-            },
             "monitoring": {
                 "check_interval_seconds": 5
             },
@@ -79,7 +76,6 @@ class TestServiceCoverage(unittest.TestCase):
         config_dir.mkdir(exist_ok=True)
         fallback_config = {
             "service": {"log_level": "INFO", "log_file": "/var/log/locker.log"},
-            "network": {"blocked_interfaces": []},
             "monitoring": {"check_interval_seconds": 5},
             "mode": "permissive",
             "android_serial": None,
@@ -491,9 +487,6 @@ class TestCLICoverage(unittest.TestCase):
                 "log_file": self.log_file,
                 "log_level": "CRITICAL"
             },
-            "network": {
-                "blocked_interfaces": ["eth0", "wlan0"]
-            },
             "monitoring": {
                 "check_interval_seconds": 5
             },
@@ -521,7 +514,6 @@ class TestCLICoverage(unittest.TestCase):
         """Test add_service converts old services dict format"""
         config = {
             "service": {"name": "locker", "log_file": self.log_file},
-            "network": {"blocked_interfaces": []},
             "services": {
                 "stop_when_locked": ["ssh"],
                 "start_when_unlocked": ["nginx"]
@@ -543,7 +535,6 @@ class TestCLICoverage(unittest.TestCase):
         """Test add_service handles invalid services format"""
         config = {
             "service": {"name": "locker", "log_file": self.log_file},
-            "network": {"blocked_interfaces": []},
             "services": "invalid"
         }
         
@@ -1173,7 +1164,7 @@ class TestCLICoverage(unittest.TestCase):
     
     def test_emergency_unlock_no_blocked_interfaces(self):
         """Test emergency_unlock with no blocked interfaces"""
-        config = {"network": {"blocked_interfaces": []}}
+        config = {}
         
         with patch('builtins.input', return_value='yes'):
             with patch('builtins.print'):
@@ -1195,7 +1186,7 @@ class TestCLICoverage(unittest.TestCase):
         """Test emergency_unlock handles exceptions"""
         with patch('builtins.input', return_value='yes'):
             with patch('subprocess.run', side_effect=Exception("Error")):
-                with patch.object(self.cli, 'load_config', return_value={'network': {'blocked_interfaces': []}}):
+                with patch.object(self.cli, 'load_config', return_value={'network': {}}):
                     output = []
                     with patch('builtins.print', side_effect=lambda *a, **kw: output.extend(str(x) for x in a)):
                         self.cli.emergency_unlock()
@@ -1758,22 +1749,7 @@ class TestCLICoverage(unittest.TestCase):
         config = self.cli.load_config()
         # Serial should be None or unchanged
     
-    def test_emergency_unlock_with_blocked_interfaces(self):
-        """Test emergency_unlock with blocked interfaces"""
-        config = {
-            "network": {"blocked_interfaces": ["eth0", "wlan0"]}
-        }
-        
-        with patch('builtins.input', return_value='yes'):
-            with patch('builtins.print'):
-                with patch('subprocess.run') as mock_subprocess:
-                    with patch.object(self.cli, 'load_config', return_value=config):
-                        self.cli.emergency_unlock()
-        
-        # Should have called ip link set up for interfaces
-        ip_calls = [c for c in mock_subprocess.call_args_list 
-                   if len(c[0]) > 0 and 'ip' in str(c[0][0])]
-        self.assertGreater(len(ip_calls), 0)
+    # Removed test_emergency_unlock_with_blocked_interfaces - blocked_interfaces no longer used
     
     def test_status_service_running_device_connected(self):
         """Test status when service is running and device is connected"""
@@ -1877,9 +1853,6 @@ class TestMainFunctions(unittest.TestCase):
             "service": {
                 "log_level": "CRITICAL",
                 "log_file": os.path.join(self.test_dir, 'test.log')
-            },
-            "network": {
-                "blocked_interfaces": []
             },
             "monitoring": {
                 "check_interval_seconds": 5

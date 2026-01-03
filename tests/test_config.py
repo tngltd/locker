@@ -42,9 +42,6 @@ class TestConfigurationSystem(unittest.TestCase):
                 "log_level": "CRITICAL",  # Disable logging for tests
                 "log_file": self.log_file
             },
-            "network": {
-                "blocked_interfaces": ["eth0", "wlan0"]
-            },
             "monitoring": {
                 "check_interval_seconds": 5
             }
@@ -67,10 +64,10 @@ class TestConfigurationSystem(unittest.TestCase):
         service = LockService(self.config_path, config_dir=self.config_dir)
         # service.name is automatically added if missing
         self.assertEqual(service.config['service']['name'], 'locker')
-        self.assertIn('network', service.config)
+        # Network section removed - no longer part of config
         self.assertIn('monitoring', service.config)
         self.assertEqual(service.config['service']['log_level'], 'CRITICAL')
-        self.assertEqual(service.config['network']['blocked_interfaces'], ['eth0', 'wlan0'])
+        # Network section is optional, no validation needed
         self.assertEqual(service.config['monitoring']['check_interval_seconds'], 5)
 
     @patch('signal.signal')
@@ -88,20 +85,7 @@ class TestConfigurationSystem(unittest.TestCase):
         self.assertIn('service', str(context.exception))
         self.assertIn('Missing required config section', str(context.exception))
 
-    @patch('signal.signal')
-    def test_load_config_missing_network_section(self, mock_signal):
-        """Test loading config with missing network section"""
-        invalid_config = self.valid_config.copy()
-        del invalid_config['network']
-
-        with open(self.config_path, 'w') as f:
-            json.dump(invalid_config, f)
-
-        with self.assertRaises(ValueError) as context:
-            LockService(self.config_path, config_dir=self.config_dir)
-
-        self.assertIn('network', str(context.exception))
-        self.assertIn('Missing required config section', str(context.exception))
+    # Removed test_load_config_missing_network_section - network section no longer exists
 
     @patch('signal.signal')
     def test_load_config_missing_monitoring_section(self, mock_signal):
@@ -133,20 +117,7 @@ class TestConfigurationSystem(unittest.TestCase):
         self.assertIn('log_level', str(context.exception))
         self.assertIn('Missing', str(context.exception))
 
-    @patch('signal.signal')
-    def test_load_config_missing_blocked_interfaces(self, mock_signal):
-        """Test loading config with missing blocked_interfaces"""
-        invalid_config = self.valid_config.copy()
-        del invalid_config['network']['blocked_interfaces']
-
-        with open(self.config_path, 'w') as f:
-            json.dump(invalid_config, f)
-
-        with self.assertRaises(ValueError) as context:
-            LockService(self.config_path, config_dir=self.config_dir)
-
-        self.assertIn('blocked_interfaces', str(context.exception))
-        self.assertIn('Missing', str(context.exception))
+    # Removed test_load_config_missing_blocked_interfaces - blocked_interfaces no longer required
 
     @patch('signal.signal')
     def test_load_config_missing_check_interval(self, mock_signal):
