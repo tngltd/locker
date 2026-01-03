@@ -49,6 +49,8 @@ class TestLockService(unittest.TestCase):
             "monitoring": {
                 "check_interval_seconds": 5
             },
+            "mode": "permissive",
+            "android_serial": None,
             "services": ["ssh"]
         }
         
@@ -66,45 +68,25 @@ class TestLockService(unittest.TestCase):
     def test_init_without_android_serial(self):
         """Test initialization without configured Android device"""
         service = LockService(self.config_path, config_dir=self.config_dir)
-        self.assertIsNone(service.android_serial)
-        self.assertFalse(service.is_configured())
+        android_serial = service.config.get('android_serial')
+        self.assertIsNone(android_serial)
+        # Check that device is not configured (android_serial is None or empty)
+        self.assertFalse(android_serial is not None and len(android_serial) > 0)
     
     def test_init_with_android_serial(self):
         """Test initialization with configured Android device"""
-        # Create android_serial file
-        serial_file = os.path.join(self.config_dir, 'android_serial')
-        with open(serial_file, 'w') as f:
-            f.write('DEVICE123456')
+        # Add android_serial to config.json
+        with open(self.config_path, 'r') as f:
+            config = json.load(f)
+        config['android_serial'] = 'DEVICE123456'
+        with open(self.config_path, 'w') as f:
+            json.dump(config, f)
         
         service = LockService(self.config_path, config_dir=self.config_dir)
-        self.assertEqual(service.android_serial, 'DEVICE123456')
-        self.assertTrue(service.is_configured())
-    
-    def test_save_android_serial(self):
-        """Test saving Android serial"""
-        service = LockService(self.config_path, config_dir=self.config_dir)
-        service.save_android_serial('TEST_SERIAL')
-        
-        # Verify file was created
-        serial_file = os.path.join(self.config_dir, 'android_serial')
-        self.assertTrue(os.path.exists(serial_file))
-        
-        # Verify content
-        with open(serial_file, 'r') as f:
-            self.assertEqual(f.read().strip(), 'TEST_SERIAL')
-        
-        # Verify permissions (should be 600)
-        file_stat = os.stat(serial_file)
-        self.assertEqual(oct(file_stat.st_mode)[-3:], '600')
-    
-    def test_load_android_serial_error(self):
-        """Test loading Android serial with error"""
-        service = LockService(self.config_path, config_dir=self.config_dir)
-        
-        # Set config_dir to non-existent path
-        service.config_dir = '/nonexistent/path'
-        result = service.load_android_serial()
-        self.assertIsNone(result)
+        android_serial = service.config.get('android_serial')
+        self.assertEqual(android_serial, 'DEVICE123456')
+        # Check that device is configured (android_serial is not None and not empty)
+        self.assertTrue(android_serial is not None and len(android_serial) > 0)
     
     @patch('locker.utils.pyudev.Context')
     def test_get_connected_android_serials(self, mock_context_class):
@@ -117,6 +99,7 @@ class TestLockService(unittest.TestCase):
             'ID_SERIAL': 'DEVICE123',
             'ID_VENDOR_ID': '18d1',  # Android vendor ID
             'ID_USB_INTERFACES': '',
+            'ID_MODEL': 'Test_Device_1',
             'DEVPATH': '/devices/pci0000:00/0000:00:14.0/usb1/1-1'
         }.get(k, default))
         
@@ -126,6 +109,7 @@ class TestLockService(unittest.TestCase):
             'ID_SERIAL': 'DEVICE456',
             'ID_VENDOR_ID': '18d1',  # Android vendor ID
             'ID_USB_INTERFACES': '',
+            'ID_MODEL': 'Test_Device_2',
             'DEVPATH': '/devices/pci0000:00/0000:00:14.0/usb1/1-2'
         }.get(k, default))
         
@@ -135,7 +119,8 @@ class TestLockService(unittest.TestCase):
         
         service = LockService(self.config_path, config_dir=self.config_dir)
         from locker import utils
-        serials = utils.get_connected_android_serials(logger=service.logger)
+        devices = utils.get_connected_devices(logger=service.logger)
+        serials = [d[0] for d in devices]
         
         self.assertEqual(len(serials), 2)
         self.assertIn('DEVICE123', serials)
@@ -150,7 +135,8 @@ class TestLockService(unittest.TestCase):
         
         service = LockService(self.config_path, config_dir=self.config_dir)
         from locker import utils
-        serials = utils.get_connected_android_serials(logger=service.logger)
+        devices = utils.get_connected_devices(logger=service.logger)
+        serials = [d[0] for d in devices]
         
         self.assertEqual(len(serials), 0)
     
@@ -162,11 +148,11 @@ class TestLockService(unittest.TestCase):
         service = LockService(self.config_path, config_dir=self.config_dir)
         from locker import utils
         
-        # Should raise exception, not return empty list
-        with self.assertRaises(Exception) as context:
-            utils.get_connected_android_serials(logger=service.logger)
+        # Should return empty list (silently handles errors)
+        devices = utils.get_connected_devices(logger=service.logger)
+        serials = [d[0] for d in devices]
         
-        self.assertIn("Failed to create pyudev context", str(context.exception))
+        self.assertEqual(len(serials), 0)
     
     @patch('locker.utils.pyudev.Context')
     def test_get_connected_android_serials_pyudev_not_found(self, mock_context_class):
@@ -176,15 +162,15 @@ class TestLockService(unittest.TestCase):
         service = LockService(self.config_path, config_dir=self.config_dir)
         from locker import utils
         
-        # Should raise exception, not return empty list
-        with self.assertRaises(Exception) as context:
-            utils.get_connected_android_serials(logger=service.logger)
+        # Should return empty list (silently handles errors)
+        devices = utils.get_connected_devices(logger=service.logger)
+        serials = [d[0] for d in devices]
         
-        self.assertIn("Failed to create pyudev context", str(context.exception))
+        self.assertEqual(len(serials), 0)
     
     @patch('locker.utils.pyudev.Context')
     def test_get_connected_android_serials_timeout(self, mock_context_class):
-        """Test getting serials raises exception on timeout"""
+        """Test getting serials on timeout"""
         mock_context = Mock()
         mock_context.list_devices = Mock(side_effect=Exception("Timeout"))
         mock_context_class.return_value = mock_context
@@ -192,11 +178,11 @@ class TestLockService(unittest.TestCase):
         service = LockService(self.config_path, config_dir=self.config_dir)
         from locker import utils
         
-        # Should raise exception, not return empty list
-        with self.assertRaises(Exception) as context:
-            utils.get_connected_android_serials(logger=service.logger)
+        # Should return empty list (silently handles errors)
+        devices = utils.get_connected_devices(logger=service.logger)
+        serials = [d[0] for d in devices]
         
-        self.assertIn("Failed to list USB devices", str(context.exception))
+        self.assertEqual(len(serials), 0)
     
     @patch('locker.utils.pyudev.Context')
     def test_get_connected_android_serials_via_debug_interface(self, mock_context_class):
@@ -209,6 +195,7 @@ class TestLockService(unittest.TestCase):
             'ID_SERIAL': 'DEVICE789',
             'ID_VENDOR_ID': '0000',  # Not an Android vendor ID
             'ID_USB_INTERFACES': 'ff:42:81',  # Android Debug Bridge interface class (0xff)
+            'ID_MODEL': 'Test_Device',
             'DEVPATH': '/devices/pci0000:00/0000:00:14.0/usb1/1-3'
         }.get(k, default))
         
@@ -218,7 +205,8 @@ class TestLockService(unittest.TestCase):
         
         service = LockService(self.config_path, config_dir=self.config_dir)
         from locker import utils
-        serials = utils.get_connected_android_serials(logger=service.logger)
+        devices = utils.get_connected_devices(logger=service.logger)
+        serials = [d[0] for d in devices]
         
         self.assertIn('DEVICE789', serials)
     
@@ -233,6 +221,7 @@ class TestLockService(unittest.TestCase):
             'ID_SERIAL': 'DEVICE123',
             'ID_VENDOR_ID': '18d1',  # Android vendor ID
             'ID_USB_INTERFACES': '',
+            'ID_MODEL': 'Test_Device',
             'DEVPATH': '/devices/pci0000:00/0000:00:14.0/usb1/1-1'
         }.get(k, default))
         
@@ -240,10 +229,12 @@ class TestLockService(unittest.TestCase):
         mock_context.list_devices = Mock(return_value=[mock_device])
         mock_context_class.return_value = mock_context
         
-        # Configure device
-        serial_file = os.path.join(self.config_dir, 'android_serial')
-        with open(serial_file, 'w') as f:
-            f.write('DEVICE123')
+        # Configure device in config.json
+        with open(self.config_path, 'r') as f:
+            config = json.load(f)
+        config['android_serial'] = 'DEVICE123'
+        with open(self.config_path, 'w') as f:
+            json.dump(config, f)
         
         service = LockService(self.config_path, config_dir=self.config_dir)
         result = service.is_configured_device_connected()
@@ -299,7 +290,7 @@ class TestLockService(unittest.TestCase):
             'services': ['ssh']
         })
         
-        service.lock_system()
+        service.lock_system(service.config['services'], True)
         
         # Verify lock actions were called (implementation is stateless, no is_locked attribute)
         self.assertGreater(mock_subprocess.call_count, 0)
@@ -312,13 +303,15 @@ class TestLockService(unittest.TestCase):
             'services': ['ssh', 'nginx']
         })
         
-        # Mock is_service_running to return True first time, False second time
-        with patch('locker.utils.is_service_running', side_effect=[True, False]):
-            service.lock_system()
+        # Mock is_service_running: first call (2 services), second call (2 services)
+        # First call: both services running (True, True)
+        # Second call: first service stopped, second still running (False, True)
+        with patch('locker.utils.is_service_running', side_effect=[True, True, False, True]):
+            service.lock_system(service.config['services'], True)
             first_call_count = mock_subprocess.call_count
             
             # Second call should still work (stateless)
-            service.lock_system()
+            service.lock_system(service.config['services'], True)
             # Should make calls (implementation checks if service is running each time)
             self.assertGreaterEqual(mock_subprocess.call_count, first_call_count)
     
@@ -331,7 +324,7 @@ class TestLockService(unittest.TestCase):
         service.config.update({'services': ['ssh']})
         
         # Should not raise
-        service.lock_system()
+        service.lock_system(service.config['services'], True)
     
     @patch('subprocess.run')
     @skip_if_macos("Test checks for is_locked attribute which doesn't exist in stateless implementation")
@@ -345,7 +338,7 @@ class TestLockService(unittest.TestCase):
             'services': ['ssh', 'nginx', 'apache']
         })
         
-        service.unlock_system()
+        service.unlock_system(service.config['services'], True)
         
         self.assertFalse(service.is_locked)
         # Verify services were started
@@ -360,7 +353,7 @@ class TestLockService(unittest.TestCase):
         service.is_locked = False
         
         initial_call_count = mock_subprocess.call_count
-        service.unlock_system()
+        service.unlock_system(service.config['services'], True)
         
         # Should not make additional calls if already unlocked
         self.assertEqual(mock_subprocess.call_count, initial_call_count)
@@ -374,7 +367,7 @@ class TestLockService(unittest.TestCase):
         service.config.update({'services': ['ssh']})
         
         # Should not raise
-        service.unlock_system()
+        service.unlock_system(service.config['services'], True)
     
     def test_signal_handler(self):
         """Test signal handling"""
@@ -583,16 +576,13 @@ class TestLockServiceConfig(unittest.TestCase):
         """Clean up test fixtures"""
         shutil.rmtree(self.test_dir, ignore_errors=True)
     
-    def test_load_config_default_fallback(self):
-        """Test loading default config when file not found"""
+    def test_load_config_file_not_found(self):
+        """Test that FileNotFoundError is raised when no config file is found"""
         nonexistent_path = os.path.join(self.test_dir, 'nonexistent.json')
-        # Also create a default config path that doesn't exist
-        with patch('pathlib.Path.exists', return_value=False):
-            service = LockService(nonexistent_path, config_dir=self.config_dir)
-            self.assertIsNotNone(service.config)
-            # Should have default config
-            self.assertIn('service', service.config)
-            # Network section removed - no longer part of config
+        # Ensure no config files exist in search locations
+        with self.assertRaises(FileNotFoundError) as context:
+            LockService(nonexistent_path, config_dir=self.config_dir)
+        self.assertIn("Configuration file not found", str(context.exception))
     
     
     def test_load_config_invalid_json(self):
@@ -650,15 +640,18 @@ class TestLockServiceConfig(unittest.TestCase):
         """Test loading config without lock/unlock policies"""
         config = {
             "service": {"log_level": "CRITICAL", "log_file": "/tmp/test.log"},
-            "monitoring": {"check_interval_seconds": 5}
+            "monitoring": {"check_interval_seconds": 5},
+            "mode": "permissive",
+            "android_serial": None,
+            "services": []
         }
         with open(self.config_path, 'w') as f:
             json.dump(config, f)
         
         service = LockService(self.config_path, config_dir=self.config_dir)
-        # Should load successfully, policies are optional
+        # Should load successfully
         self.assertIsInstance(service.config, dict)
-        # Services list should exist (defaults to empty)
+        # Services list should exist
         self.assertIsInstance(service.config.get('services', []), list)
     
 
@@ -683,7 +676,10 @@ class TestLockServiceMain(unittest.TestCase):
             },
             "monitoring": {
                 "check_interval_seconds": 5
-            }
+            },
+            "mode": "permissive",
+            "android_serial": None,
+            "services": []
         }
         
         with open(self.config_path, 'w') as f:

@@ -1,13 +1,13 @@
 {
-  "service": {
-    "log_level": "INFO",
-    "log_file": "/var/log/locker.log",
-    "name": "locker"
-  },
-  "monitoring": {
-    "check_interval_seconds": 5
-  },
-  "mode": "permissive",
-  "android_serial": null,
-  "services": []
+    "service": {
+        "log_level": "INFO",
+        "log_file": "/var/log/locker.log"
+    },
+    "monitoring": {
+        "check_interval_seconds": 5
+    },
+    "mode": "permissive",
+    "android_serial": null,
+    "services": []
 }
+

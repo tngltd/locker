@@ -44,7 +44,10 @@ class TestConfigurationSystem(unittest.TestCase):
             },
             "monitoring": {
                 "check_interval_seconds": 5
-            }
+            },
+            "mode": "permissive",
+            "android_serial": None,
+            "services": []
         }
 
         import logging
@@ -62,13 +65,14 @@ class TestConfigurationSystem(unittest.TestCase):
             json.dump(self.valid_config, f)
 
         service = LockService(self.config_path, config_dir=self.config_dir)
-        # service.name is automatically added if missing
-        self.assertEqual(service.config['service']['name'], 'locker')
         # Network section removed - no longer part of config
         self.assertIn('monitoring', service.config)
         self.assertEqual(service.config['service']['log_level'], 'CRITICAL')
         # Network section is optional, no validation needed
         self.assertEqual(service.config['monitoring']['check_interval_seconds'], 5)
+        self.assertEqual(service.config['mode'], 'permissive')
+        self.assertIsNone(service.config['android_serial'])
+        self.assertEqual(service.config['services'], [])
 
     @patch('signal.signal')
     def test_load_config_missing_service_section(self, mock_signal):

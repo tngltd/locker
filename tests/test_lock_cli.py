@@ -149,7 +149,7 @@ class TestLockCLI(unittest.TestCase):
         """Test status when device is configured"""
         with patch.object(self.cli, 'is_service_running', return_value=True):
             with patch.object(self.cli, 'get_android_serial', return_value="DEVICE123"):
-                with patch.object(self.cli, 'get_connected_devices', return_value=[("DEVICE123", "Test Device")]):
+                with patch('locker.utils.get_connected_devices', return_value=[("DEVICE123", "Test Device")]):
                     output = []
                     def mock_print(*args, **kwargs):
                         output.append(' '.join(str(a) for a in args))
@@ -172,7 +172,7 @@ class TestLockCLI(unittest.TestCase):
         """Test setup with new configuration - select device from list"""
         mock_input.side_effect = ["1", "n"]  # Select first device, don't reconfigure
         
-        with patch.object(self.cli, 'get_connected_devices', return_value=[("DEVICE123", "Test Device")]):
+        with patch('locker.utils.get_connected_devices', return_value=[("DEVICE123", "Test Device")]):
             with patch.object(self.cli, 'save_android_serial') as mock_save:
                 self.cli.setup()
                 mock_save.assert_called_once_with("DEVICE123")
@@ -359,7 +359,7 @@ class TestLockCLIEdgeCases(unittest.TestCase):
         
         mock_input.return_value = 'n'
         
-        with patch.object(self.cli, 'get_connected_devices', return_value=[("NEW_DEVICE", "New Device")]):
+        with patch('locker.utils.get_connected_devices', return_value=[("NEW_DEVICE", "New Device")]):
             self.cli.setup()
         
         # Should not have changed the serial
@@ -456,7 +456,7 @@ class TestLockCLIMain(unittest.TestCase):
         # Note: list-devices command doesn't exist - CLI uses get_connected_devices internally
         # This test should be skipped or updated to test actual CLI behavior
         with patch('sys.argv', ['locker', 'list-devices']):
-            with patch.object(LockCLI, 'get_connected_devices') as mock_get_devices:
+            with patch('locker.utils.get_connected_devices') as mock_get_devices:
                 mock_get_devices.return_value = []
                 # This will likely fail since list-devices isn't implemented
                 # Skipping on macOS since the command doesn't exist

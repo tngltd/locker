@@ -45,6 +45,8 @@ class TestSystemLockdown(unittest.TestCase):
             "monitoring": {
                 "check_interval_seconds": 1
             },
+            "mode": "permissive",
+            "android_serial": None,
             "services": ["ssh"]
         }
         
@@ -69,7 +71,7 @@ class TestSystemLockdown(unittest.TestCase):
         service.is_locked = True
         
         initial_call_count = len(mock_subprocess.call_args_list)
-        service.lock_system()
+        service.lock_system(service.config['services'], True)
         
         # Should not make additional calls if already locked
         self.assertEqual(len(mock_subprocess.call_args_list), initial_call_count)
@@ -79,7 +81,7 @@ class TestSystemLockdown(unittest.TestCase):
         """Test that unlock_system restores SSH"""
         service = LockService(self.config_path, config_dir=self.config_dir)
         
-        service.unlock_system()
+        service.unlock_system(service.config['services'], True)
         
         # Verify systemctl start was called (implementation uses start, not enable)
         calls = [str(call) for call in mock_subprocess.call_args_list]
@@ -95,7 +97,7 @@ class TestSystemLockdown(unittest.TestCase):
         service.is_locked = False
         
         initial_call_count = len(mock_subprocess.call_args_list)
-        service.unlock_system()
+        service.unlock_system(service.config['services'], True)
         
         # Should not make additional calls if already unlocked
         self.assertEqual(len(mock_subprocess.call_args_list), initial_call_count)
@@ -107,11 +109,11 @@ class TestSystemLockdown(unittest.TestCase):
         service = LockService(self.config_path, config_dir=self.config_dir)
         
         # Lock
-        service.lock_system()
+        service.lock_system(service.config['services'], True)
         self.assertTrue(service.is_locked)
         
         # Unlock
-        service.unlock_system()
+        service.unlock_system(service.config['services'], True)
         self.assertFalse(service.is_locked)
         
         # Verify both operations made system calls

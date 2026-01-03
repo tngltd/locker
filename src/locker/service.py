@@ -5,114 +5,55 @@ A security service for Ubuntu systems to lock down devices when the configured A
 """
 
 import os
-import json
 import time
 import signal
 import logging
-import subprocess
-from typing import Dict, List, Optional
+import daemon
+import traceback
+
+from typing import Optional
 import argparse
 from locker import utils
+from locker import config
 
 
 class LockService:
-    def __init__(self, config_path: str = "/etc/locker/config.json", config_dir: str = None, config_override: dict = None):
-        self.config_path = config_path
-        self.config = self.load_config()
+    def __init__(self, config_path: Optional[str] = None, config_dir: Optional[str] = None, config_override: Optional[dict] = None):
+        # Use default config path if not provided
+        if config_path is None:
+            config_path = "/etc/locker/config.json"
+        # Validate that config file exists (will raise FileNotFoundError if not)
+        self.config_path = config.find_config_file(config_path)
+        
+        # Set config directory (allow override for testing)
+        self.config_dir = config_dir or "/etc/locker"
+        
+        # Load configuration
+        self.config = config.load_config(self.config_path)
         if config_override:
             self.config.update(config_override)
+        
         self.running = True
-        self.was_connected = None  # Track previous connection state for run_once
         
         # Setup logging first (needed for error handling)
         # Note: self.config is already loaded above
         self.setup_logging()
         
-        # Set config directory (allow override for testing)
-        self.config_dir = config_dir or "/etc/locker"
-        
-        # Load configured Android device serial (try file first, then config.json)
-        self.android_serial = self.load_android_serial() or self.config.get('android_serial')
-        
-        # Get mode (permissive or enforcing)
-        self.mode = self.config.get('mode', 'permissive')
-        
         # Setup signal handlers
         signal.signal(signal.SIGTERM, self.signal_handler)
         signal.signal(signal.SIGINT, self.signal_handler)
-        signal.signal(signal.SIGHUP, self.reload_config_handler)
         
-        if self.android_serial:
-            self.logger.info(f"Lock Service initialized. Configured Android serial: {self.android_serial}")
+        android_serial = self.config['android_serial']
+        if android_serial:
+            self.logger.info(f"Lock Service initialized. Configured Android serial: {android_serial}")
         else:
             self.logger.warning("Lock Service initialized. No Android device configured - run \"locker setup\" first")
     
-    def load_config(self) -> Dict:
-        """Load and validate configuration from JSON file"""
-        try:
-            with open(self.config_path, 'r') as f:
-                config = json.load(f)
-        except FileNotFoundError:
-            # Return default config for testing/fallback scenarios
-            default_config = {
-                "service": {
-                    "log_level": "INFO",
-                    "log_file": "/var/log/locker.log"
-                },
-                "monitoring": {
-                    "check_interval_seconds": 5
-                },
-                "services": []
-            }
-            return default_config
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON in config file: {e}")
-        
-        # Validate required sections
-        self.validate_config(config)
-        return config
-    
-    def validate_config(self, config: Dict):
-        """Validate configuration structure"""
-        required_sections = ['service', 'monitoring']
-        for section in required_sections:
-            if section not in config:
-                raise ValueError(f"Missing required config section: {section}")
-        
-        # Validate service section
-        if 'log_level' not in config['service']:
-            raise ValueError("Missing \"log_level\" in service config")
-        
-        # Ensure service.name exists
-        if 'name' not in config['service']:
-            config['service']['name'] = 'locker'
-        
-        # Validate monitoring section
-        if 'check_interval_seconds' not in config['monitoring']:
-            raise ValueError("Missing \"check_interval_seconds\" in monitoring config")
-        
-        # Validate mode
-        mode = config.get('mode', 'permissive')
-        if mode not in ['permissive', 'enforcing']:
-            raise ValueError(f"Invalid mode: {mode}. Must be \"permissive\" or \"enforcing\"")
-        
-        # Ensure services section exists as a list
-        if 'services' not in config:
-            config['services'] = []
-        elif not isinstance(config['services'], list):
-            # Convert old format to new format
-            if isinstance(config['services'], dict):
-                # Merge stop_when_locked and start_when_unlocked into a single list
-                old_stop = config['services'].get('stop_when_locked', [])
-                old_start = config['services'].get('start_when_unlocked', [])
-                config['services'] = list(set(old_stop + old_start))
-            else:
-                config['services'] = []
     
     def setup_logging(self):
         """Setup logging configuration"""
-        # Get log level from config, default to INFO
-        log_level_str = self.config.get('service', {}).get('log_level', 'INFO').upper()
+        # Get log level from config
+        log_level_str = self.config['service']['log_level'].upper()
         log_level = getattr(logging, log_level_str, logging.INFO)
 
         # Setup logger
@@ -161,164 +102,90 @@ class LockService:
             
             # Don't log sensitive information or very long values
             # Keep android_serial but truncate if too long
-            sanitized_serial = config_copy.get('android_serial', 'Not configured')
+            sanitized_serial = config_copy.get('android_serial') or 'Not configured'
             if sanitized_serial and sanitized_serial != 'Not configured' and len(sanitized_serial) > 20:
                 sanitized_serial = sanitized_serial[:10] + "..." + sanitized_serial[-7:]
             
             # Log configuration in a readable format
             self.logger.info("Current configuration:")
-            self.logger.info(f"  Mode: {config_copy.get('mode', 'permissive')}")
+            self.logger.info(f"  Mode: {config_copy['mode']}")
             self.logger.info(f"  Android Serial: {sanitized_serial}")
-            self.logger.info(f"  Services: {config_copy.get('services', [])}")
-            self.logger.info(f"  Monitoring Interval: {config_copy.get('monitoring', {}).get('check_interval_seconds', 5)} seconds")
-            self.logger.info(f"  Log Level: {config_copy.get('service', {}).get('log_level', 'INFO')}")
-            self.logger.info(f"  Log File: {config_copy.get('service', {}).get('log_file', '/var/log/locker.log')}")
+            self.logger.info(f"  Services: {config_copy['services']}")
+            self.logger.info(f"  Monitoring Interval: {config_copy['monitoring']['check_interval_seconds']} seconds")
+            self.logger.info(f"  Log Level: {config_copy['service']['log_level']}")
+            self.logger.info(f"  Log File: {config_copy['service']['log_file']}")
             
             # Network config logging removed (no longer used)
         except Exception as e:
             self.logger.warning(f"Error logging configuration: {e}")
     
-    
-    def load_android_serial(self) -> Optional[str]:
-        """Load Android device serial from config_dir/android_serial file"""
-        try:
-            serial_file = os.path.join(self.config_dir, 'android_serial')
-            if os.path.exists(serial_file):
-                with open(serial_file, 'r') as f:
-                    serial = f.read().strip()
-                    if serial:
-                        return serial
-        except Exception:
-            pass
-        return None
-    
-    def save_android_serial(self, serial: str):
-        """Save Android device serial to config_dir/android_serial file"""
-        try:
-            # Ensure config directory exists
-            os.makedirs(self.config_dir, exist_ok=True)
-            
-            # Save to android_serial file
-            serial_file = os.path.join(self.config_dir, 'android_serial')
-            with open(serial_file, 'w') as f:
-                f.write(serial)
-            os.chmod(serial_file, 0o600)
-            
-            # Also update config.json for backward compatibility
-            try:
-                config = self.load_config()
-                config['android_serial'] = serial
-                os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
-                with open(self.config_path, 'w') as f:
-                    json.dump(config, f, indent=2)
-                os.chmod(self.config_path, 0o644)
-            except Exception:
-                pass  # Don't fail if config.json update fails
-            
-            # Update instance variable
-            self.android_serial = serial
-            if self.config:
-                self.config['android_serial'] = serial
-            self.logger.info(f"Android serial configured: {serial}")
-        except Exception as e:
-            self.logger.error(f"Error saving Android serial: {e}")
-    
-    def is_configured(self) -> bool:
-        """Check if an Android device is configured"""
-        return self.android_serial is not None and len(self.android_serial) > 0
-    
-    
-    def lock_system(self):
-        """Lock down the system - stop configured services (stateless)"""
-        self.logger.info("Locking system...")
+    def lock_system(self, services: list, enforcing: bool):
+        """Lock down the system - stop configured services (stateless)
         
-        try:
-            # Stop configured services (only if running)
-            services_to_stop = self.config.get('services', [])
-            for service in services_to_stop:
-                self.logger.info(f"Checking if service {service} is running...")
-                if utils.is_service_running(service, logger=self.logger, log_check=True):
-                    self.logger.info(f"Service {service} is running - stopping it")
-                    result = subprocess.run(['systemctl', 'stop', service], check=False, capture_output=True, text=True, timeout=10)
-                    if result.returncode == 0:
-                        self.logger.info(f"Service {service} stopped successfully")
-                    else:
-                        self.logger.warning(f"Failed to stop service {service}: {result.stderr}")
-                else:
-                    self.logger.info(f"Service {service} is already stopped")
-            
-            self.logger.info("System locked successfully")
-            
-        except Exception as e:
-            self.logger.error(f"Error locking system: {e}")
-    
-    def unlock_system(self):
-        """Unlock the system - start configured services (stateless)"""
-        self.logger.info("Unlocking system...")
+        Args:
+            services: List of service names to stop
+            enforcing: If True, actually stop services. If False, only log actions.
+        """
+        mode_str = "enforcing" if enforcing else "permissive"
+        self.logger.info(f"Locking system (mode: {mode_str})...")
         
-        try:
-            # Start configured services (only if stopped)
-            services_to_start = self.config.get('services', [])
-            for service in services_to_start:
-                self.logger.info(f"Checking if service {service} is running...")
-                if not utils.is_service_running(service, logger=self.logger, log_check=True):
-                    self.logger.info(f"Service {service} is not running - starting it")
-                    result = subprocess.run(['systemctl', 'start', service], check=False, capture_output=True, text=True, timeout=10)
-                    if result.returncode == 0:
-                        self.logger.info(f"Service {service} started successfully")
-                    else:
-                        self.logger.warning(f"Failed to start service {service}: {result.stderr}")
-                else:
-                    self.logger.info(f"Service {service} is already running")
+        for service in services:
+            is_running = utils.is_service_running(service, logger=self.logger)
             
-            self.logger.info("System unlocked successfully")
+            if not is_running:
+                continue
+
+            self.logger.info(f"Service {service} is running - {'would be' if not enforcing else ''} stopping it ({mode_str})")
             
-        except Exception as e:
-            self.logger.error(f"Error unlocking system: {e}")
+            if not enforcing:
+                continue
+
+            utils.stop_service(service, logger=self.logger)
+    
+        self.logger.info(f"System locked successfully (mode: {mode_str})")
+    
+    def unlock_system(self, services: list, enforcing: bool):
+        """Unlock the system - start configured services (stateless)
+        
+        Args:
+            services: List of service names to start
+            enforcing: If True, actually start services. If False, only log actions.
+        """
+        mode_str = "enforcing" if enforcing else "permissive"
+        self.logger.info(f"Unlocking system (mode: {mode_str})...")
+        
+        for service in services:
+            is_running = utils.is_service_running(service, logger=self.logger)
+            
+            if is_running:
+                continue
+
+            self.logger.info(f"Service {service} is not running - {'would be' if not enforcing else ''} starting it ({mode_str})")
+            
+            if not enforcing:
+                continue
+
+            utils.start_service(service, logger=self.logger)
+    
+        self.logger.info(f"System unlocked successfully (mode: {mode_str})")
     
     
     def is_configured_device_connected(self) -> bool:
         """Check if the configured Android device is connected"""
-        if not self.android_serial:
+        android_serial = self.config['android_serial']
+        if not android_serial:
             return False
         
-        try:
-            connected_serials = utils.get_connected_android_serials(logger=self.logger)
-            is_connected = self.android_serial in connected_serials
-            
-            if is_connected:
-                self.logger.info(f"Android device {self.android_serial} is connected")
-            else:
-                self.logger.info(f"Android device {self.android_serial} is NOT connected")
-            
-            return is_connected
-        except Exception as e:
-            self.logger.error(f"Failed to check device connection: {e}")
-            # On error, assume device is not connected (fail-safe)
-            return False
-    
-    def reload_config(self):
-        """Reload configuration from file and log it"""
-        try:
-            self.config = self.load_config()
-            
-            # Update instance variables
-            self.android_serial = self.config.get('android_serial')
-            self.mode = self.config.get('mode', 'permissive')
-            
-            # Log configuration change
-            self.logger.info("Configuration reloaded")
-            self.log_config()
-            
-            return True
-        except Exception as e:
-            self.logger.error(f"Error reloading configuration: {e}")
-            return False
-    
-    def reload_config_handler(self, signum, frame):
-        """Handle SIGHUP signal to reload configuration"""
-        self.logger.info(f"Received SIGHUP signal, reloading configuration...")
-        self.reload_config()
+        devices = utils.get_connected_devices(logger=self.logger)
+        connected_serials = [d[0] for d in devices]
+        is_connected = android_serial in connected_serials
+        
+        if is_connected:
+            self.logger.info(f"Android device {android_serial} is connected")
+        else:
+            self.logger.info(f"Android device {android_serial} is NOT connected")
+        
+        return is_connected
     
     def signal_handler(self, signum, frame):
         """Handle shutdown signals"""
@@ -332,95 +199,47 @@ class LockService:
             config_override: Optional dict to override config values. If provided,
                             config will be reloaded from file first, then override applied.
         """
-        # If config_override provided, reload config and apply override
+        # Phase 1: Load config, apply override, validate
+        self.config = config.load_config(self.config_path)
         if config_override:
-            self.config = self.load_config()
             self.config.update(config_override)
-            # Update instance variables from config
-            self.android_serial = self.load_android_serial() or self.config.get('android_serial')
-            self.mode = self.config.get('mode', 'permissive')
+            config.validate_config(self.config)
+        
+        # Extract config values
+        android_serial = self.config['android_serial']
+        mode = self.config['mode']
+        services = self.config['services']
+        enforcing = (mode == 'enforcing')
         
         self.logger.info("Monitor loop iteration started")
         try:
-            # Check service status (always check, even if no device configured)
-            services = self.config.get('services', [])
-            self.logger.info(f"Checking {len(services)} configured service(s): {services}")
-            running_services = []
-            for service in services:
-                is_running = utils.is_service_running(service, logger=self.logger)
-                if is_running:
-                    running_services.append(service)
-                self.logger.info(f"Service '{service}' status: {'RUNNING' if is_running else 'STOPPED'}")
-            self.logger.info(f"Running services: {running_services}")
-            
-            if not self.is_configured():
-                # No device configured - log status
-                self.logger.info(f"No Android device configured - checking configuration...")
-                self.logger.info(f"Monitor: No Android device configured, Mode: {self.mode}, System: UNLOCKED, Services running: {running_services}")
-                return
-            
-            self.logger.info(f"Android device configured: {self.android_serial}")
-            
-            # Check if configured device is connected
-            self.logger.info(f"Checking if device {self.android_serial} is connected...")
-            is_connected = self.is_configured_device_connected()
-            self.logger.info(f"Device {self.android_serial} connection status: {'CONNECTED' if is_connected else 'DISCONNECTED'}")
-            
-            # Log current status every iteration
-            device_status = "CONNECTED" if is_connected else "DISCONNECTED"
-            system_status = "UNLOCKED" if is_connected else "LOCKED"
-            self.logger.info(f"Monitor: Device {self.android_serial} {device_status}, Mode: {self.mode}, System: {system_status}, Services running: {running_services}")
-            
-            # Initialize was_connected on first run
-            if self.was_connected is None:
-                self.was_connected = is_connected
-            
-            self.logger.info(f"Previous connection state: {'CONNECTED' if self.was_connected else 'DISCONNECTED'}")
-            
-            # Only enforce locking in enforcing mode
-            if self.mode != 'enforcing':
-                self.logger.info(f"Mode is '{self.mode}' (not enforcing) - skipping lock/unlock actions")
-                return
-            
-            self.logger.info(f"Mode is 'enforcing' - checking if action needed...")
-            
-            if is_connected and not self.was_connected:
-                # Device just connected - unlock
-                self.logger.info(f"State change detected: Device {self.android_serial} just CONNECTED (was disconnected)")
-                self.logger.info(f"Action: Unlocking system")
-                self.unlock_system()
-                self.was_connected = True
-                self.logger.info(f"Updated connection state: was_connected = True")
-            
-            elif not is_connected and self.was_connected:
-                # Device just disconnected - lock
-                self.logger.info(f"State change detected: Device {self.android_serial} just DISCONNECTED (was connected)")
-                self.logger.info(f"Action: Locking system")
-                self.lock_system()
-                self.was_connected = False
-                self.logger.info(f"Updated connection state: was_connected = False")
-            
-            elif not is_connected:
-                # Device not connected - check if services are running and lock if needed
-                self.logger.info(f"Device is disconnected (no state change)")
-                if running_services:
-                    self.logger.info(f"Services still running: {running_services} - action needed")
-                    self.logger.info(f"Action: Locking system to stop running services")
-                    self.lock_system()
-                else:
-                    self.logger.info(f"No services running - system already locked or no services to manage")
+            # Phase 2: Get android_serial from config and check if device is connected
+            is_connected = False
+            if android_serial and len(android_serial) > 0:
+                self.logger.info(f"Android device configured: {android_serial}")
+                is_connected = self.is_configured_device_connected()
+                device_status = "CONNECTED" if is_connected else "DISCONNECTED"
+                self.logger.info(f"Device {android_serial} connection status: {device_status}")
             else:
-                # Device is connected and was connected (no change)
-                self.logger.info(f"Device is connected (no state change) - no action needed")
+                self.logger.info("No Android device configured")
+            
+            # Phase 3: If connected, unlock - otherwise lock. Pass enforcing bool.
+            if is_connected:
+                self.logger.info(f"Device connected - unlocking system (mode: {mode})")
+                self.unlock_system(services, enforcing)
+            else:
+                self.logger.info(f"Device disconnected - locking system (mode: {mode})")
+                self.lock_system(services, enforcing)
             
         except Exception as e:
             self.logger.error(f"Error in monitoring check: {e}")
+            traceback.print_exc()
             raise
     
     def run(self):
         """Main service loop"""
-        self.logger.info(f"Lock Service started successfully (mode: {self.mode})")
-        self.logger.info(f"Monitoring interval: {self.config.get('monitoring', {}).get('check_interval_seconds', 5)} seconds")
+        mode = self.config['mode']
+        self.logger.info(f"Lock Service started successfully (mode: {mode})")
         
         # Log configuration on startup
         self.log_config()
@@ -428,7 +247,7 @@ class LockService:
         while self.running:
             try:
                 self.run_once()
-                check_interval = self.config.get('monitoring', {}).get('check_interval_seconds', 5)
+                check_interval = self.config['monitoring']['check_interval_seconds']
                 self.logger.info(f"Sleeping for {check_interval} seconds before next check")
                 time.sleep(check_interval)
             except KeyboardInterrupt:
@@ -490,7 +309,6 @@ def main():
         service.run_once()
     elif args.daemon:
         # Run as daemon
-        import daemon
         with daemon.DaemonContext():
             service.run()
     else:

@@ -50,6 +50,8 @@ class TestServiceCoverage(unittest.TestCase):
             "monitoring": {
                 "check_interval_seconds": 5
             },
+            "mode": "permissive",
+            "android_serial": None,
             "services": []
         }
         
@@ -66,36 +68,16 @@ class TestServiceCoverage(unittest.TestCase):
         logging.disable(logging.NOTSET)
     
     def test_load_config_from_fallback_config_json(self):
-        """Test loading config from config/config.json fallback"""
+        """Test that config file must exist (no fallback searching)"""
         # Remove the test config
         os.remove(self.config_path)
         
-        # Create config/config.json in project root
-        project_root = Path(__file__).parent.parent
-        config_dir = project_root / "config"
-        config_dir.mkdir(exist_ok=True)
-        fallback_config = {
-            "service": {"log_level": "INFO", "log_file": "/var/log/locker.log"},
-            "monitoring": {"check_interval_seconds": 5},
-            "mode": "permissive",
-            "android_serial": None,
-            "services": []
-        }
-        fallback_path = config_dir / "config.json"
-        with open(fallback_path, 'w') as f:
-            json.dump(fallback_config, f)
-        
-        try:
-            service = LockService(self.config_path, config_dir=self.config_dir)
-            self.assertIsNotNone(service.config)
-            self.assertEqual(service.config['service']['log_level'], "INFO")
-        finally:
-            # Clean up
-            if fallback_path.exists():
-                fallback_path.unlink()
+        # Should raise FileNotFoundError since config file doesn't exist
+        with self.assertRaises(FileNotFoundError):
+            LockService(self.config_path, config_dir=self.config_dir)
     
     def test_load_config_services_list_conversion(self):
-        """Test converting old services dict format to list format"""
+        """Test that old services dict format is rejected (no conversion)"""
         config = self.test_config.copy()
         config['services'] = {
             'stop_when_locked': ['ssh', 'nginx'],
@@ -105,24 +87,23 @@ class TestServiceCoverage(unittest.TestCase):
         with open(self.config_path, 'w') as f:
             json.dump(config, f)
         
-        service = LockService(self.config_path, config_dir=self.config_dir)
-        # Should convert to list and merge
-        self.assertIsInstance(service.config['services'], list)
-        self.assertIn('ssh', service.config['services'])
-        self.assertIn('nginx', service.config['services'])
-        self.assertIn('apache', service.config['services'])
+        # Should raise ValueError because services must be a list
+        with self.assertRaises(ValueError) as context:
+            LockService(self.config_path, config_dir=self.config_dir)
+        self.assertIn('services', str(context.exception))
     
     def test_load_config_services_invalid_format(self):
-        """Test handling invalid services format"""
+        """Test that invalid services format is rejected (no conversion)"""
         config = self.test_config.copy()
         config['services'] = "invalid"
         
         with open(self.config_path, 'w') as f:
             json.dump(config, f)
         
-        service = LockService(self.config_path, config_dir=self.config_dir)
-        # Should convert invalid format to empty list
-        self.assertIsInstance(service.config['services'], list)
+        # Should raise ValueError because services must be a list
+        with self.assertRaises(ValueError) as context:
+            LockService(self.config_path, config_dir=self.config_dir)
+        self.assertIn('services', str(context.exception))
     
     def test_setup_logging_file_handler_error(self):
         """Test logging setup when file handler fails"""
@@ -136,32 +117,6 @@ class TestServiceCoverage(unittest.TestCase):
         service = LockService(self.config_path, config_dir=self.config_dir)
         self.assertIsNotNone(service.logger)
     
-    def test_load_android_serial_with_exception(self):
-        """Test load_android_serial when exception occurs"""
-        with open(self.config_path, 'w') as f:
-            json.dump(self.test_config, f)
-        
-        service = LockService(self.config_path, config_dir=self.config_dir)
-        
-        # Make config_dir invalid to cause exception
-        service.config_dir = '/nonexistent/path/that/does/not/exist'
-        result = service.load_android_serial()
-        self.assertIsNone(result)
-    
-    def test_save_android_serial_with_exception(self):
-        """Test save_android_serial when exception occurs"""
-        with open(self.config_path, 'w') as f:
-            json.dump(self.test_config, f)
-        
-        service = LockService(self.config_path, config_dir=self.config_dir)
-        
-        # Make config_dir invalid to cause exception
-        service.config_dir = '/root/protected/path'  # Should fail on permission
-        
-        # Should not raise, just log error
-        service.save_android_serial('TEST_SERIAL')
-        # Serial should not be set if save failed
-        # (depends on implementation, but should not crash)
     
     def test_lock_system_with_services_list(self):
         """Test lock_system with services list"""
@@ -176,7 +131,7 @@ class TestServiceCoverage(unittest.TestCase):
         with patch('subprocess.run') as mock_subprocess:
             # Mock is_service_running to return True so services will be stopped
             with patch('locker.utils.is_service_running', return_value=True):
-                service.lock_system()
+                service.lock_system(service.config['services'], True)
             
             # Check that systemctl stop was called for each service
             stop_calls = [c for c in mock_subprocess.call_args_list 
@@ -196,16 +151,16 @@ class TestServiceCoverage(unittest.TestCase):
         service.is_locked = True
         
         with patch('subprocess.run') as mock_subprocess:
-            service.unlock_system()
+            service.unlock_system(service.config['services'], True)
             
             # Check that systemctl start was called for each service
-            start_calls = [c for c in mock_subprocess.call_args_list 
-                          if len(c[0]) > 0 and 'systemctl' in str(c[0][0]) and 'start' in str(c[0][0])]
+            start_calls = [c for c in mock_subprocess.call_args_list
+                           if len(c[0]) > 0 and 'systemctl' in str(c[0][0]) and 'start' in str(c[0][0])]
             self.assertGreater(len(start_calls), 0)
     
     @patch('locker.utils.pyudev.Context')
     def test_get_connected_android_serials_exception_handling(self, mock_context_class):
-        """Test get_connected_android_serials raises exception on failure"""
+        """Test get_connected_devices handles exception on failure"""
         # Make context raise exception
         mock_context_class.side_effect = Exception("Test exception")
         
@@ -215,15 +170,15 @@ class TestServiceCoverage(unittest.TestCase):
         service = LockService(self.config_path, config_dir=self.config_dir)
         from locker import utils
         
-        # Should raise exception, not return empty list
-        with self.assertRaises(Exception) as context:
-            utils.get_connected_android_serials(logger=service.logger)
+        # Should return empty list (silently handles errors)
+        devices = utils.get_connected_devices(logger=service.logger)
+        serials = [d[0] for d in devices]
         
-        self.assertIn("Failed to create pyudev context", str(context.exception))
+        self.assertEqual(len(serials), 0)
     
     @patch('locker.utils.pyudev.Context')
     def test_get_connected_android_serials_vendor_id_exception(self, mock_context_class):
-        """Test get_connected_android_serials raises exception when listing devices fails"""
+        """Test get_connected_devices handles exception when listing devices fails"""
         mock_context = Mock()
         
         # Make list_devices raise exception
@@ -236,15 +191,15 @@ class TestServiceCoverage(unittest.TestCase):
         service = LockService(self.config_path, config_dir=self.config_dir)
         from locker import utils
         
-        # Should raise exception, not return empty list
-        with self.assertRaises(Exception) as context:
-            utils.get_connected_android_serials(logger=service.logger)
+        # Should return empty list (silently handles errors)
+        devices = utils.get_connected_devices(logger=service.logger)
+        serials = [d[0] for d in devices]
         
-        self.assertIn("Failed to list USB devices", str(context.exception))
+        self.assertEqual(len(serials), 0)
     
     @patch('locker.utils.pyudev.Context')
     def test_get_connected_android_serials_broad_usb_check(self, mock_context_class):
-        """Test get_connected_android_serials via broad USB subsystem check"""
+        """Test get_connected_devices via broad USB subsystem check"""
         
         mock_device = Mock()
         mock_device.get = Mock(side_effect=lambda k, default='': {
@@ -252,6 +207,7 @@ class TestServiceCoverage(unittest.TestCase):
             'ID_SERIAL': 'DEVICE789',
             'ID_VENDOR_ID': '18d1',  # Android vendor ID
             'ID_USB_INTERFACES': 'ff:42:81',  # Android Debug Bridge interface class
+            'ID_MODEL': 'Test_Device',
             'DEVPATH': '/devices/pci0000:00/0000:00:14.0/usb1/1-3'
         }.get(k, default))
         
@@ -269,7 +225,8 @@ class TestServiceCoverage(unittest.TestCase):
         
         service = LockService(self.config_path, config_dir=self.config_dir)
         from locker import utils
-        serials = utils.get_connected_android_serials(logger=service.logger)
+        devices = utils.get_connected_devices(logger=service.logger)
+        serials = [d[0] for d in devices]
         
         self.assertIn('DEVICE789', serials)
     
@@ -449,6 +406,8 @@ class TestCLICoverage(unittest.TestCase):
             "monitoring": {
                 "check_interval_seconds": 5
             },
+            "mode": "permissive",
+            "android_serial": None,
             "services": []
         }
         
@@ -472,7 +431,10 @@ class TestCLICoverage(unittest.TestCase):
     def test_add_service_converts_old_format(self):
         """Test add_service converts old services dict format"""
         config = {
-            "service": {"name": "locker", "log_file": self.log_file},
+            "service": {"name": "locker", "log_file": self.log_file, "log_level": "CRITICAL"},
+            "monitoring": {"check_interval_seconds": 5},
+            "mode": "permissive",
+            "android_serial": None,
             "services": {
                 "stop_when_locked": ["ssh"],
                 "start_when_unlocked": ["nginx"]
@@ -493,7 +455,10 @@ class TestCLICoverage(unittest.TestCase):
     def test_add_service_invalid_format(self):
         """Test add_service handles invalid services format"""
         config = {
-            "service": {"name": "locker", "log_file": self.log_file},
+            "service": {"name": "locker", "log_file": self.log_file, "log_level": "CRITICAL"},
+            "monitoring": {"check_interval_seconds": 5},
+            "mode": "permissive",
+            "android_serial": None,
             "services": "invalid"
         }
         
@@ -544,7 +509,7 @@ class TestCLICoverage(unittest.TestCase):
         """Test set_android_serial with manual entry"""
         with patch('builtins.input', side_effect=['y', 'MANUAL_SERIAL_123']):
             with patch('builtins.print'):
-                with patch.object(self.cli, 'get_connected_devices', return_value=[]):
+                with patch('locker.utils.get_connected_devices', return_value=[]):
                     self.cli.set_android_serial()
         
         config = self.cli.load_config()
@@ -554,7 +519,7 @@ class TestCLICoverage(unittest.TestCase):
         """Test set_android_serial when user cancels"""
         with patch('builtins.input', return_value='n'):
             with patch('builtins.print'):
-                with patch.object(self.cli, 'get_connected_devices', return_value=[]):
+                with patch('locker.utils.get_connected_devices', return_value=[]):
                     self.cli.set_android_serial()
         
         # Should not have set serial
@@ -567,7 +532,7 @@ class TestCLICoverage(unittest.TestCase):
         
         with patch('builtins.input', return_value=''):
             with patch('builtins.print'):
-                with patch.object(self.cli, 'get_connected_devices', return_value=devices):
+                with patch('locker.utils.get_connected_devices', return_value=devices):
                     self.cli.set_android_serial()
         
         config = self.cli.load_config()
@@ -579,7 +544,7 @@ class TestCLICoverage(unittest.TestCase):
         
         with patch('builtins.input', return_value='1'):
             with patch('builtins.print'):
-                with patch.object(self.cli, 'get_connected_devices', return_value=devices):
+                with patch('locker.utils.get_connected_devices', return_value=devices):
                     self.cli.set_android_serial()
         
         config = self.cli.load_config()
@@ -591,7 +556,7 @@ class TestCLICoverage(unittest.TestCase):
         
         with patch('builtins.input', return_value='CUSTOM_SERIAL'):
             with patch('builtins.print'):
-                with patch.object(self.cli, 'get_connected_devices', return_value=devices):
+                with patch('locker.utils.get_connected_devices', return_value=devices):
                     self.cli.set_android_serial()
         
         config = self.cli.load_config()
@@ -656,7 +621,7 @@ class TestCLICoverage(unittest.TestCase):
         
         with patch('builtins.input', side_effect=['y', '1']):
             with patch('builtins.print'):
-                with patch.object(self.cli, 'get_connected_devices', return_value=devices):
+                with patch('locker.utils.get_connected_devices', return_value=devices):
                     with patch.object(self.cli, 'save_android_serial') as mock_save:
                         self.cli.setup()
                         mock_save.assert_called_once_with('NEW_DEVICE')
@@ -669,7 +634,7 @@ class TestCLICoverage(unittest.TestCase):
         
         with patch('builtins.input', return_value='n'):
             with patch('builtins.print'):
-                with patch.object(self.cli, 'get_connected_devices', return_value=[]):
+                with patch('locker.utils.get_connected_devices', return_value=[]):
                     self.cli.setup()
         
         # Serial should remain unchanged
@@ -680,7 +645,7 @@ class TestCLICoverage(unittest.TestCase):
         """Test setup with manual serial entry"""
         with patch('builtins.input', side_effect=['y', 'MANUAL_SERIAL']):
             with patch('builtins.print'):
-                with patch.object(self.cli, 'get_connected_devices', return_value=[]):
+                with patch('locker.utils.get_connected_devices', return_value=[]):
                     with patch.object(self.cli, 'save_android_serial') as mock_save:
                         self.cli.setup()
                         mock_save.assert_called_once_with('MANUAL_SERIAL')
@@ -691,7 +656,7 @@ class TestCLICoverage(unittest.TestCase):
         
         with patch('builtins.input', return_value=''):
             with patch('builtins.print'):
-                with patch.object(self.cli, 'get_connected_devices', return_value=devices):
+                with patch('locker.utils.get_connected_devices', return_value=devices):
                     with patch.object(self.cli, 'save_android_serial') as mock_save:
                         self.cli.setup()
                         mock_save.assert_called_once_with('DEVICE123')
@@ -702,7 +667,7 @@ class TestCLICoverage(unittest.TestCase):
         
         with patch('builtins.input', return_value='2'):
             with patch('builtins.print'):
-                with patch.object(self.cli, 'get_connected_devices', return_value=devices):
+                with patch('locker.utils.get_connected_devices', return_value=devices):
                     with patch.object(self.cli, 'save_android_serial') as mock_save:
                         self.cli.setup()
                         mock_save.assert_called_once_with('DEVICE2')
@@ -713,7 +678,7 @@ class TestCLICoverage(unittest.TestCase):
         
         with patch('builtins.input', return_value='CUSTOM_SERIAL'):
             with patch('builtins.print'):
-                with patch.object(self.cli, 'get_connected_devices', return_value=devices):
+                with patch('locker.utils.get_connected_devices', return_value=devices):
                     with patch.object(self.cli, 'save_android_serial') as mock_save:
                         self.cli.setup()
                         mock_save.assert_called_once_with('CUSTOM_SERIAL')
@@ -724,7 +689,7 @@ class TestCLICoverage(unittest.TestCase):
         
         with patch('builtins.input', return_value='99'):
             with patch('builtins.print'):
-                with patch.object(self.cli, 'get_connected_devices', return_value=devices):
+                with patch('locker.utils.get_connected_devices', return_value=devices):
                     with patch.object(self.cli, 'save_android_serial') as mock_save:
                         self.cli.setup()
                         mock_save.assert_not_called()
@@ -735,7 +700,7 @@ class TestCLICoverage(unittest.TestCase):
         
         with patch('builtins.input', side_effect=KeyboardInterrupt()):
             with patch('builtins.print'):
-                with patch.object(self.cli, 'get_connected_devices', return_value=devices):
+                with patch('locker.utils.get_connected_devices', return_value=devices):
                     try:
                         self.cli.setup()
                     except KeyboardInterrupt:
@@ -776,7 +741,7 @@ class TestCLICoverage(unittest.TestCase):
     
     def test_list_devices_no_devices(self):
         """Test list_devices_cmd when no devices found"""
-        with patch.object(self.cli, 'get_connected_devices', return_value=[]):
+        with patch('locker.utils.get_connected_devices', return_value=[]):
             with patch.object(self.cli, 'get_android_serial', return_value=None):
                 output = []
                 with patch('builtins.print', side_effect=lambda *a, **kw: output.extend(str(x) for x in a)):
@@ -788,7 +753,7 @@ class TestCLICoverage(unittest.TestCase):
     def test_list_devices_with_configured(self):
         """Test list_devices_cmd shows configured device marker"""
         devices = [("DEVICE123", "Test Device")]
-        with patch.object(self.cli, 'get_connected_devices', return_value=devices):
+        with patch('locker.utils.get_connected_devices', return_value=devices):
             with patch.object(self.cli, 'get_android_serial', return_value="DEVICE123"):
                 output = []
                 with patch('builtins.print', side_effect=lambda *a, **kw: output.extend(str(x) for x in a)):
@@ -802,7 +767,7 @@ class TestCLICoverage(unittest.TestCase):
     def test_list_devices_configured_not_connected(self):
         """Test list_devices_cmd shows when configured device is not connected"""
         devices = [("OTHER_DEVICE", "Other Device")]
-        with patch.object(self.cli, 'get_connected_devices', return_value=devices):
+        with patch('locker.utils.get_connected_devices', return_value=devices):
             with patch.object(self.cli, 'get_android_serial', return_value="DEVICE123"):
                 output = []
                 with patch('builtins.print', side_effect=lambda *a, **kw: output.extend(str(x) for x in a)):
@@ -914,30 +879,30 @@ class TestCLICoverage(unittest.TestCase):
             json.dump(config, f)
         
         service = LockService(self.config_path, config_dir=self.config_dir)
-        self.assertEqual(service.android_serial, 'CONFIG_SERIAL')
+        self.assertEqual(service.config.get('android_serial'), 'CONFIG_SERIAL')
     
-    def test_load_config_android_serial_from_file(self):
-        """Test load_config gets android_serial from file when not in config"""
-        # Don't put serial in config
+    def test_load_config_android_serial_from_config(self):
+        """Test load_config gets android_serial from config.json"""
+        # Put serial in config
+        config = self.test_config.copy()
+        config['android_serial'] = 'CONFIG_SERIAL'
         with open(self.config_path, 'w') as f:
-            json.dump(self.test_config, f)
-        
-        # Put serial in file
-        serial_file = os.path.join(self.config_dir, 'android_serial')
-        with open(serial_file, 'w') as f:
-            f.write('FILE_SERIAL')
+            json.dump(config, f)
         
         service = LockService(self.config_path, config_dir=self.config_dir)
-        self.assertEqual(service.android_serial, 'FILE_SERIAL')
+        self.assertEqual(service.config.get('android_serial'), 'CONFIG_SERIAL')
     
     def test_is_configured_empty_string(self):
-        """Test is_configured returns False for empty string"""
+        """Test that empty string android_serial is not considered configured"""
+        config = self.test_config.copy()
+        config['android_serial'] = ''
         with open(self.config_path, 'w') as f:
-            json.dump(self.test_config, f)
+            json.dump(config, f)
         
         service = LockService(self.config_path, config_dir=self.config_dir)
-        service.android_serial = ''
-        self.assertFalse(service.is_configured())
+        android_serial = service.config.get('android_serial')
+        # Check that device is not configured (android_serial is None or empty)
+        self.assertFalse(android_serial is not None and len(android_serial) > 0)
     
     def test_get_connected_devices_model_cleaning(self):
         """Test get_connected_devices cleans model names"""
@@ -949,12 +914,13 @@ class TestCLICoverage(unittest.TestCase):
             'ID_VENDOR_ID': '18d1'
         }.get(k, default))
         
-        with patch('locker.cli.pyudev.Context') as mock_context_class:
+        with patch('locker.utils.pyudev.Context') as mock_context_class:
             mock_context = Mock()
             mock_context.list_devices = Mock(return_value=[mock_device])
             mock_context_class.return_value = mock_context
             
-            devices = self.cli.get_connected_devices()
+            from locker import utils
+            devices = utils.get_connected_devices()
             self.assertEqual(len(devices), 1)
             # Model should be cleaned (underscores to spaces, title case)
             self.assertIn('Test Device Model', devices[0][1])
@@ -969,12 +935,13 @@ class TestCLICoverage(unittest.TestCase):
             'ID_VENDOR_ID': '18d1'
         }.get(k, default))
         
-        with patch('locker.cli.pyudev.Context') as mock_context_class:
+        with patch('locker.utils.pyudev.Context') as mock_context_class:
             mock_context = Mock()
             mock_context.list_devices = Mock(return_value=[mock_device])
             mock_context_class.return_value = mock_context
             
-            devices = self.cli.get_connected_devices()
+            from locker import utils
+            devices = utils.get_connected_devices()
             self.assertEqual(len(devices), 1)
             self.assertEqual(devices[0][1], 'Unknown')
     
@@ -996,12 +963,13 @@ class TestCLICoverage(unittest.TestCase):
             'ID_VENDOR_ID': '18d1'
         }.get(k, default))
         
-        with patch('locker.cli.pyudev.Context') as mock_context_class:
+        with patch('locker.utils.pyudev.Context') as mock_context_class:
             mock_context = Mock()
             mock_context.list_devices = Mock(return_value=[mock_device1, mock_device2])
             mock_context_class.return_value = mock_context
             
-            devices = self.cli.get_connected_devices()
+            from locker import utils
+            devices = utils.get_connected_devices()
             # Should only have one device (duplicates removed)
             self.assertEqual(len(devices), 1)
     
@@ -1014,18 +982,19 @@ class TestCLICoverage(unittest.TestCase):
             'ID_VENDOR_ID': '18d1'
         }.get(k, default))
         
-        with patch('locker.cli.pyudev.Context') as mock_context_class:
+        with patch('locker.utils.pyudev.Context') as mock_context_class:
             mock_context = Mock()
             mock_context.list_devices = Mock(return_value=[mock_device])
             mock_context_class.return_value = mock_context
             
-            devices = self.cli.get_connected_devices()
+            from locker import utils
+            devices = utils.get_connected_devices()
             self.assertEqual(len(devices), 1)
             self.assertEqual(devices[0][0], 'FULL_SERIAL_12345')
     
     def test_get_connected_devices_broad_check_exception(self):
         """Test get_connected_devices handles exception in broad USB check"""
-        with patch('locker.cli.pyudev.Context') as mock_context_class:
+        with patch('locker.utils.pyudev.Context') as mock_context_class:
             mock_context = Mock()
             
             call_count = [0]
@@ -1039,7 +1008,8 @@ class TestCLICoverage(unittest.TestCase):
             mock_context.list_devices = Mock(side_effect=list_devices_side_effect)
             mock_context_class.return_value = mock_context
             
-            devices = self.cli.get_connected_devices()
+            from locker import utils
+            devices = utils.get_connected_devices()
             # Should handle exception and return empty list
             self.assertEqual(devices, [])
     
@@ -1373,7 +1343,7 @@ class TestCLICoverage(unittest.TestCase):
         service.is_locked = True
         
         with patch('subprocess.run'):
-            service.unlock_system()
+                service.unlock_system(service.config['services'], True)
         
         # Should still unlock (set is_locked = False)
         self.assertFalse(service.is_locked)
@@ -1408,18 +1378,19 @@ class TestCLICoverage(unittest.TestCase):
         service.is_locked = True
         
         with patch('subprocess.run'):
-            service.unlock_system()
+                service.unlock_system(service.config['services'], True)
         
         # Should complete without error
         self.assertFalse(service.is_locked)
     
     def test_get_connected_android_serials_no_serial_short(self):
-        """Test get_connected_android_serials uses ID_SERIAL when ID_SERIAL_SHORT missing"""
+        """Test get_connected_devices uses ID_SERIAL when ID_SERIAL_SHORT missing"""
         
         mock_device = Mock()
         mock_device.get = Mock(side_effect=lambda k, default='': {
             'ID_SERIAL': 'FULL_SERIAL_12345',  # No ID_SERIAL_SHORT
             'ID_VENDOR_ID': '18d1',  # Android vendor ID
+            'ID_MODEL': 'Test_Device',
             'DEVPATH': '/devices/pci0000:00/0000:00:14.0/usb1/1-1'
         }.get(k, default))
         
@@ -1437,18 +1408,20 @@ class TestCLICoverage(unittest.TestCase):
             
             service = LockService(self.config_path, config_dir=self.config_dir)
             from locker import utils
-            serials = utils.get_connected_android_serials(logger=service.logger)
+            devices = utils.get_connected_devices(logger=service.logger)
+            serials = [d[0] for d in devices]
             
             self.assertIn('FULL_SERIAL_12345', serials)
     
     def test_get_connected_android_serials_duplicate_serials(self):
-        """Test get_connected_android_serials handles duplicate serials"""
+        """Test get_connected_devices handles duplicate serials"""
         
         mock_device1 = Mock()
         mock_device1.get = Mock(side_effect=lambda k, default='': {
             'ID_SERIAL_SHORT': 'DEVICE123',
             'ID_SERIAL': 'DEVICE123',
             'ID_VENDOR_ID': '18d1',
+            'ID_MODEL': 'Test_Device_1',
             'DEVPATH': '/devices/pci0000:00/0000:00:14.0/usb1/1-1'
         }.get(k, default))
         
@@ -1457,6 +1430,7 @@ class TestCLICoverage(unittest.TestCase):
             'ID_SERIAL_SHORT': 'DEVICE123',  # Same serial
             'ID_SERIAL': 'DEVICE123',
             'ID_VENDOR_ID': '18d1',
+            'ID_MODEL': 'Test_Device_2',
             'DEVPATH': '/devices/pci0000:00/0000:00:14.0/usb1/1-2'
         }.get(k, default))
         
@@ -1474,13 +1448,14 @@ class TestCLICoverage(unittest.TestCase):
             
             service = LockService(self.config_path, config_dir=self.config_dir)
             from locker import utils
-            serials = utils.get_connected_android_serials(logger=service.logger)
+            devices = utils.get_connected_devices(logger=service.logger)
+            serials = [d[0] for d in devices]
             
             # Should only have one serial (duplicates removed)
             self.assertEqual(serials.count('DEVICE123'), 1)
     
     def test_get_connected_android_serials_broad_check_with_colon(self):
-        """Test get_connected_android_serials broad check with colon in interfaces"""
+        """Test get_connected_devices broad check with colon in interfaces"""
         
         mock_device = Mock()
         mock_device.get = Mock(side_effect=lambda k, default='': {
@@ -1488,6 +1463,7 @@ class TestCLICoverage(unittest.TestCase):
             'ID_SERIAL': 'DEVICE999',
             'ID_USB_INTERFACES': 'some:interface:here',  # Has colon
             'ID_VENDOR_ID': '18d1',  # Android vendor ID
+            'ID_MODEL': 'Test_Device',
             'DEVPATH': '/devices/pci0000:00/0000:00:14.0/usb1/1-3'
         }.get(k, default))
         
@@ -1506,12 +1482,13 @@ class TestCLICoverage(unittest.TestCase):
             
             service = LockService(self.config_path, config_dir=self.config_dir)
             from locker import utils
-            serials = utils.get_connected_android_serials(logger=service.logger)
+            devices = utils.get_connected_devices(logger=service.logger)
+            serials = [d[0] for d in devices]
             
             self.assertIn('DEVICE999', serials)
     
     def test_get_connected_android_serials_broad_check_exception(self):
-        """Test get_connected_android_serials raises exception in broad USB check"""
+        """Test get_connected_devices handles exception in broad USB check"""
         with patch('locker.utils.pyudev.Context') as mock_context_class:
             mock_context = Mock()
             
@@ -1525,11 +1502,11 @@ class TestCLICoverage(unittest.TestCase):
             service = LockService(self.config_path, config_dir=self.config_dir)
             from locker import utils
             
-            # Should raise exception, not return empty list
-            with self.assertRaises(Exception) as context:
-                utils.get_connected_android_serials(logger=service.logger)
+            # Should return empty list (silently handles errors)
+            devices = utils.get_connected_devices(logger=service.logger)
+            serials = [d[0] for d in devices]
             
-            self.assertIn("Failed to list USB devices", str(context.exception))
+            self.assertEqual(len(serials), 0)
     
     def test_is_configured_device_connected_no_serial(self):
         """Test is_configured_device_connected when no serial configured"""
@@ -1565,7 +1542,7 @@ class TestCLICoverage(unittest.TestCase):
             'ID_USB_INTERFACES': 'some:interface:here'  # Has colon
         }.get(k, default))
         
-        with patch('locker.cli.pyudev.Context') as mock_context_class:
+        with patch('locker.utils.pyudev.Context') as mock_context_class:
             mock_context = Mock()
             def list_devices_side_effect(*args, **kwargs):
                 if kwargs.get('subsystem') == 'usb':
@@ -1575,7 +1552,8 @@ class TestCLICoverage(unittest.TestCase):
             mock_context.list_devices = Mock(side_effect=list_devices_side_effect)
             mock_context_class.return_value = mock_context
             
-            devices = self.cli.get_connected_devices()
+            from locker import utils
+            devices = utils.get_connected_devices()
             self.assertEqual(len(devices), 1)
             self.assertEqual(devices[0][0], 'DEVICE888')
     
@@ -1591,7 +1569,7 @@ class TestCLICoverage(unittest.TestCase):
             'ID_USB_INTERFACES': 'ff:42:81'  # Android Debug Bridge interface class (0xff)
         }.get(k, default))
         
-        with patch('locker.cli.pyudev.Context') as mock_context_class:
+        with patch('locker.utils.pyudev.Context') as mock_context_class:
             mock_context = Mock()
             def list_devices_side_effect(*args, **kwargs):
                 if kwargs.get('subsystem') == 'usb':
@@ -1601,7 +1579,8 @@ class TestCLICoverage(unittest.TestCase):
             mock_context.list_devices = Mock(side_effect=list_devices_side_effect)
             mock_context_class.return_value = mock_context
             
-            devices = self.cli.get_connected_devices()
+            from locker import utils
+            devices = utils.get_connected_devices()
             self.assertEqual(len(devices), 1)
             self.assertEqual(devices[0][0], 'DEVICE777')
     
@@ -1611,7 +1590,7 @@ class TestCLICoverage(unittest.TestCase):
         
         with patch('builtins.input', return_value='n'):
             with patch('builtins.print'):
-                with patch.object(self.cli, 'get_connected_devices', return_value=devices):
+                with patch('locker.utils.get_connected_devices', return_value=devices):
                     self.cli.set_android_serial()
         
         # Should not have set serial
@@ -1624,7 +1603,7 @@ class TestCLICoverage(unittest.TestCase):
         
         with patch('builtins.input', side_effect=KeyboardInterrupt()):
             with patch('builtins.print'):
-                with patch.object(self.cli, 'get_connected_devices', return_value=devices):
+                with patch('locker.utils.get_connected_devices', return_value=devices):
                     try:
                         self.cli.set_android_serial()
                     except KeyboardInterrupt:
@@ -1634,7 +1613,7 @@ class TestCLICoverage(unittest.TestCase):
         """Test set_android_serial with no serial and no devices - user cancels"""
         with patch('builtins.input', return_value='n'):
             with patch('builtins.print'):
-                with patch.object(self.cli, 'get_connected_devices', return_value=[]):
+                with patch('locker.utils.get_connected_devices', return_value=[]):
                     self.cli.set_android_serial()
         
         # Should not have set serial
@@ -1663,7 +1642,7 @@ class TestCLICoverage(unittest.TestCase):
         """Test status when service not running and device disconnected"""
         with patch.object(self.cli, 'is_service_running', return_value=False):
             with patch.object(self.cli, 'get_android_serial', return_value="DEVICE123"):
-                with patch.object(self.cli, 'get_connected_devices', return_value=[]):
+                with patch('locker.utils.get_connected_devices', return_value=[]):
                     with patch('subprocess.run') as mock_subprocess:
                         mock_subprocess.return_value = Mock(returncode=0, stdout="Chain INPUT")
                         output = []
@@ -1676,12 +1655,13 @@ class TestCLICoverage(unittest.TestCase):
     
     def test_get_connected_devices_exception_handling(self):
         """Test get_connected_devices handles exceptions"""
-        with patch('locker.cli.pyudev.Context', side_effect=Exception("Test error")):
-            devices = self.cli.get_connected_devices()
+        with patch('locker.utils.pyudev.Context', side_effect=Exception("Test error")):
+            from locker import utils
+            devices = utils.get_connected_devices()
             # Should return empty list, not raise
             self.assertEqual(devices, [])
     
-    @patch('locker.cli.pyudev.Context')
+    @patch('locker.utils.pyudev.Context')
     def test_get_connected_devices_vendor_id_exception(self, mock_context_class):
         """Test get_connected_devices handles vendor ID loop exceptions"""
         mock_context = Mock()
@@ -1696,11 +1676,12 @@ class TestCLICoverage(unittest.TestCase):
         mock_context.list_devices = Mock(side_effect=list_devices_side_effect)
         mock_context_class.return_value = mock_context
         
-        devices = self.cli.get_connected_devices()
+        from locker import utils
+        devices = utils.get_connected_devices()
         # Should handle exceptions and continue
         self.assertIsInstance(devices, list)
     
-    @patch('locker.cli.pyudev.Context')
+    @patch('locker.utils.pyudev.Context')
     def test_get_connected_devices_broad_usb_check(self, mock_context_class):
         """Test get_connected_devices via broad USB subsystem check"""
         
@@ -1722,7 +1703,8 @@ class TestCLICoverage(unittest.TestCase):
         mock_context.list_devices = Mock(side_effect=list_devices_side_effect)
         mock_context_class.return_value = mock_context
         
-        devices = self.cli.get_connected_devices()
+        from locker import utils
+        devices = utils.get_connected_devices()
         self.assertEqual(len(devices), 1)
         self.assertEqual(devices[0][0], 'DEVICE456')
 
@@ -1746,6 +1728,8 @@ class TestMainFunctions(unittest.TestCase):
             "monitoring": {
                 "check_interval_seconds": 5
             },
+            "mode": "permissive",
+            "android_serial": None,
             "services": []
         }
         
