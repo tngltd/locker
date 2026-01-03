@@ -14,6 +14,7 @@ import signal
 from pathlib import Path
 from typing import Optional, List
 import pyudev
+from locker import utils
 
 
 class LockCLI:
@@ -33,23 +34,27 @@ class LockCLI:
             sys.exit(1)
     
     def get_android_serial(self) -> Optional[str]:
-        """Get configured Android device serial from config or file"""
+        """Get configured Android device serial (try config.json first, then file as fallback)"""
+        # Try config.json first
         try:
             config = self.load_config()
             serial = config.get('android_serial')
             if serial:
                 return serial
-        except:
+        except (FileNotFoundError, SystemExit, Exception):
             pass
         
-        # Fallback to file (legacy)
+        # Fall back to android_serial file
         try:
             serial_file = os.path.join(self.config_dir, 'android_serial')
             if os.path.exists(serial_file):
                 with open(serial_file, 'r') as f:
-                    return f.read().strip()
-        except:
+                    serial = f.read().strip()
+                    if serial:
+                        return serial
+        except Exception:
             pass
+        
         return None
     
     def save_config(self, config: dict):
@@ -114,91 +119,59 @@ class LockCLI:
             pass
     
     def get_connected_devices(self) -> List[tuple]:
-        """Get list of connected Android devices (serial, model) using ADB and pyudev"""
+        """Get list of connected Android devices (serial, model) using pyudev"""
         devices = []
         seen_serials = set()
         
-        # First, try to use ADB directly (most reliable method)
         try:
-            result = subprocess.run(
-                ['adb', 'devices', '-l'],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            if result.returncode == 0:
-                for line in result.stdout.split('\n'):
-                    if line.strip() and not line.startswith('List of devices'):
-                        parts = line.split()
-                        if len(parts) >= 2 and parts[1] == 'device':
-                            serial = parts[0]
-                            # Extract model from the line if available
-                            model = 'Unknown'
-                            for part in parts:
-                                if 'model:' in part.lower():
-                                    model = part.split(':', 1)[1].replace('_', ' ').title()
-                                    break
-                            if serial and serial not in seen_serials:
-                                devices.append((serial, model))
-                                seen_serials.add(serial)
-        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
-            # ADB not available, fall back to pyudev
-            pass
-        
-        # Fallback to pyudev detection (less reliable but works without ADB)
-        if not devices:
+            context = pyudev.Context()
+            
             try:
-                context = pyudev.Context()
-                
-                # Android vendor IDs
-                android_vendor_ids = ['18d1', '0bb4', '04e8', '24e3', '0955', '201e', '0e79', '04c5', '2a47']
-                
-                try:
-                    for device in context.list_devices(subsystem='usb'):
-                        interfaces = device.get('ID_USB_INTERFACES', '')
-                        vendor_id = device.get('ID_VENDOR_ID', '').lower()
-                        serial = device.get('ID_SERIAL_SHORT') or device.get('ID_SERIAL')
-                        
-                        # Skip devices without serials
-                        if not serial:
-                            continue
-                        
-                        # Check if this looks like an Android device
-                        is_android = False
-                        
-                        # Method 1: Check vendor ID (most reliable)
-                        if vendor_id in android_vendor_ids:
-                            is_android = True
-                        
-                        # Method 2: Check for ADB interface class (0xff) - but only if we have a valid serial
-                        # This is less reliable but helps catch devices that might not be in vendor list
-                        if not is_android and ':' in interfaces:
-                            interface_parts = interfaces.split(':')
-                            if len(interface_parts) >= 1:
-                                interface_class = interface_parts[0]
-                                # ADB uses vendor-specific class 0xff (255)
-                                if interface_class.lower() == 'ff' or interface_class == '255':
-                                    # Additional check: serial should look like an Android serial
-                                    if len(serial) >= 8 and serial.replace('_', '').replace('-', '').isalnum():
-                                        is_android = True
-                        
-                        if is_android:
-                            if serial not in seen_serials:
-                                # Additional validation: Android serials are typically alphanumeric
-                                # Skip PCI addresses and other non-Android identifiers
-                                if len(serial) >= 8 and serial.replace('_', '').replace('-', '').isalnum():
-                                    # Skip PCI-style addresses (e.g., "0000:01:02.0")
-                                    if ':' not in serial or not serial.startswith('0000:'):
-                                        model = device.get('ID_MODEL', 'Unknown')
-                                        model = model.replace('_', ' ').title()
-                                        devices.append((serial, model))
-                                        seen_serials.add(serial)
-                except Exception as e:
-                    # Log error but continue
-                    pass
+                for device in context.list_devices(subsystem='usb'):
+                    interfaces = device.get('ID_USB_INTERFACES', '')
+                    vendor_id = device.get('ID_VENDOR_ID', '').lower()
+                    serial = device.get('ID_SERIAL_SHORT') or device.get('ID_SERIAL')
                     
+                    # Skip devices without serials
+                    if not serial:
+                        continue
+                    
+                    # Check if this looks like an Android device
+                    is_android = False
+                    
+                    # Method 1: Check vendor ID (most reliable)
+                    if vendor_id in utils.ANDROID_VENDOR_IDS:
+                        is_android = True
+                    
+                    # Method 2: Check for Android Debug Bridge interface class (0xff) - but only if we have a valid serial
+                    # This is less reliable but helps catch devices that might not be in vendor list
+                    if not is_android and ':' in interfaces:
+                        interface_parts = interfaces.split(':')
+                        if len(interface_parts) >= 1:
+                            interface_class = interface_parts[0]
+                            # Android devices use vendor-specific class 0xff (255) for debugging interface
+                            if interface_class.lower() == 'ff' or interface_class == '255':
+                                # Additional check: serial should look like an Android serial
+                                if len(serial) >= 8 and serial.replace('_', '').replace('-', '').isalnum():
+                                    is_android = True
+                    
+                    if is_android:
+                        if serial not in seen_serials:
+                            # Additional validation: Android serials are typically alphanumeric
+                            # Skip PCI addresses and other non-Android identifiers
+                            if len(serial) >= 8 and serial.replace('_', '').replace('-', '').isalnum():
+                                # Skip PCI-style addresses (e.g., "0000:01:02.0")
+                                if ':' not in serial or not serial.startswith('0000:'):
+                                    model = device.get('ID_MODEL', 'Unknown')
+                                    model = model.replace('_', ' ').title()
+                                    devices.append((serial, model))
+                                    seen_serials.add(serial)
             except Exception as e:
-                print(f"Error getting devices: {e}")
+                # Log error but continue
+                pass
+                
+        except Exception as e:
+            print(f"Error getting devices: {e}")
         
         return devices
     
@@ -471,32 +444,36 @@ class LockCLI:
                     print(f"Error reading log file: {e}")
     
     def is_service_running(self) -> bool:
-        """Check if the locker systemd service is running"""
-        # First try systemctl
+        """Check if the locker service is running (check PID file first, then systemctl)"""
+        # Check PID file if available
+        pid_file = getattr(self, 'service_pid_file', None) or self.pid_file
+        if pid_file and os.path.exists(pid_file):
+            try:
+                with open(pid_file, 'r') as f:
+                    pid_str = f.read().strip()
+                    if pid_str:
+                        pid = int(pid_str)
+                        # Check if process is actually running
+                        try:
+                            os.kill(pid, 0)  # Signal 0 doesn't kill, just checks if process exists
+                            return True
+                        except (OSError, ProcessLookupError):
+                            return False
+            except (ValueError, IOError):
+                pass
+        
+        # Fall back to systemctl check
         try:
             result = subprocess.run(
                 ['systemctl', 'is-active', 'locker'],
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
+                check=False
             )
-            if result.returncode == 0 and result.stdout.strip() == 'active':
-                return True
+            return result.returncode == 0 and result.stdout.strip() == 'active'
         except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
-            pass
-        
-        # Fallback: check PID file
-        pid_file = getattr(self, 'service_pid_file', self.pid_file)
-        if os.path.exists(pid_file):
-            try:
-                with open(pid_file, 'r') as f:
-                    pid = int(f.read().strip())
-                    # Check if process exists (os.kill with 0 signal just checks existence)
-                    os.kill(pid, 0)
-                    return True
-            except (ValueError, OSError):
-                return False
-        return False
+            return False
     
     def start_service(self):
         """Start the locker systemd service"""
@@ -657,13 +634,6 @@ class LockCLI:
                 except Exception as e:
                     print(f"Error starting service {service_name}: {e}")
             
-            # Clear iptables
-            try:
-                subprocess.run(['iptables', '-F'], check=False, timeout=5)
-                subprocess.run(['iptables', '-X'], check=False, timeout=5)
-            except Exception as e:
-                print(f"Error clearing iptables: {e}")
-            
             print("System unlocked successfully.")
         except Exception as e:
             print(f"Error unlocking system: {e}")
@@ -692,23 +662,24 @@ class LockCLI:
                 print("Status: DISCONNECTED")
         print()
         
-        # System lock status (check iptables)
-        try:
-            result = subprocess.run(
-                ['iptables', '-L', 'INPUT', '-n'],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            if result.returncode == 0:
-                if 'DROP' in result.stdout:
-                    print("System status: LOCKED")
-                else:
-                    print("System status: UNLOCKED")
-            else:
-                print("System status: Unknown")
-        except Exception:
-            print("System status: Unknown")
+        # System lock status (based on services)
+        config = self.load_config()
+        services = config.get('services', [])
+        if services:
+            print("Configured services:")
+            for service_name in services:
+                try:
+                    result = subprocess.run(
+                        ['systemctl', 'is-active', '--quiet', service_name],
+                        capture_output=True,
+                        timeout=2
+                    )
+                    status = "RUNNING" if result.returncode == 0 else "STOPPED"
+                    print(f"  {service_name}: {status}")
+                except Exception:
+                    print(f"  {service_name}: UNKNOWN")
+        else:
+            print("No services configured")
 
 
 def main():

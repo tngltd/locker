@@ -4,7 +4,6 @@
 
 The locker service uses Linux-specific commands that are **not available on macOS**:
 - `systemctl` - Linux systemd service manager (macOS uses `launchctl`)
-- `iptables` - Linux firewall (macOS uses `pfctl`)
 - `ip link` - Linux network interface management (macOS uses `ifconfig`)
 
 ## Test Compatibility

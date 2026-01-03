@@ -350,32 +350,6 @@ class TestLockCLIEdgeCases(unittest.TestCase):
                 mock_stop.assert_called_once()
                 mock_start.assert_called_once()
 
-    def test_status_with_iptables_drop(self):
-        """Test status shows LOCKED when iptables has DROP"""
-        with patch.object(self.cli, 'is_service_running', return_value=True):
-            with patch.object(self.cli, 'get_android_serial', return_value="DEVICE123"):
-                with patch.object(self.cli, 'get_connected_devices', return_value=[]):
-                    output = []
-                    with patch('builtins.print', side_effect=lambda *a, **kw: output.append(' '.join(str(x) for x in a))):
-                        with patch('subprocess.run') as mock_subprocess:
-                            mock_subprocess.return_value = Mock(returncode=0, stdout="DROP all")
-                            self.cli.status()
-                    
-                    status_text = ' '.join(output)
-                    self.assertIn("LOCKED", status_text)
-
-    def test_status_iptables_exception(self):
-        """Test status handles iptables exception"""
-        with patch.object(self.cli, 'is_service_running', return_value=False):
-            with patch.object(self.cli, 'get_android_serial', return_value=None):
-                output = []
-                with patch('builtins.print', side_effect=lambda *a, **kw: output.append(' '.join(str(x) for x in a))):
-                    with patch('subprocess.run', side_effect=Exception()):
-                        self.cli.status()
-                
-                status_text = ' '.join(output)
-                self.assertIn("Unknown", status_text)
-
     @patch('builtins.input')
     def test_setup_reconfigure_declined(self, mock_input):
         """Test setup when user declines reconfigure"""
@@ -401,7 +375,7 @@ class TestLockCLIEdgeCases(unittest.TestCase):
         
         output = []
         with patch('builtins.print', side_effect=lambda *a, **kw: output.append(' '.join(str(x) for x in a))):
-            with patch.object(self.cli, 'load_config', return_value={'network': {}}):
+            with patch.object(self.cli, 'load_config', return_value={'services': ['ssh']}):
                 self.cli.emergency_unlock()
         
         self.assertTrue(any('Error' in o for o in output))

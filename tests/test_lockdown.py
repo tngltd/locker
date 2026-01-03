@@ -45,13 +45,7 @@ class TestSystemLockdown(unittest.TestCase):
             "monitoring": {
                 "check_interval_seconds": 1
             },
-            "services": ["ssh"],
-            "lock_policies": {
-                "block_all_ports": True
-            },
-            "unlock_policies": {
-                "restore_all_ports": True
-            }
+            "services": ["ssh"]
         }
         
         with open(self.config_path, 'w') as f:
@@ -65,23 +59,6 @@ class TestSystemLockdown(unittest.TestCase):
         import logging
         logging.disable(logging.NOTSET)
 
-    @patch('locker.service.subprocess.run')
-    def test_lock_system_blocks_ports(self, mock_subprocess):
-        """Test that lock_system blocks ports with iptables"""
-        service = LockService(self.config_path, config_dir=self.config_dir)
-        service.is_locked = False
-        
-        service.lock_system()
-        
-        # Verify iptables DROP rules were added
-        iptables_calls = [c for c in mock_subprocess.call_args_list if len(c[0]) > 0 and 'iptables' in str(c[0][0])]
-        drop_found = False
-        for call_args in iptables_calls:
-            args = call_args[0][0] if isinstance(call_args[0], (list, tuple)) else call_args[0]
-            if isinstance(args, list) and '-j' in args and 'DROP' in args:
-                drop_found = True
-                break
-        self.assertTrue(drop_found, "iptables DROP rule not added")
 
     @patch('locker.service.subprocess.run')
     @skip_if_macos("Test checks for is_locked attribute and idempotent behavior - implementation is stateless")
@@ -108,27 +85,6 @@ class TestSystemLockdown(unittest.TestCase):
         calls = [str(call) for call in mock_subprocess.call_args_list]
         self.assertTrue(any('systemctl' in str(c) and 'start' in str(c) and 'ssh' in str(c) for c in calls))
 
-    @patch('locker.service.subprocess.run')
-    def test_unlock_system_clears_iptables(self, mock_subprocess):
-        """Test that unlock_system clears iptables rules"""
-        service = LockService(self.config_path, config_dir=self.config_dir)
-        service.is_locked = True
-        
-        service.unlock_system()
-        
-        # Verify iptables -F and -X were called
-        iptables_calls = [c for c in mock_subprocess.call_args_list if len(c[0]) > 0 and 'iptables' in str(c[0][0])]
-        flush_found = False
-        delete_found = False
-        for call_args in iptables_calls:
-            args = call_args[0][0] if isinstance(call_args[0], (list, tuple)) else call_args[0]
-            if isinstance(args, list):
-                if '-F' in args:
-                    flush_found = True
-                if '-X' in args:
-                    delete_found = True
-        self.assertTrue(flush_found, "iptables -F not called")
-        self.assertTrue(delete_found, "iptables -X not called")
 
     @patch('locker.service.subprocess.run')
     @skip_if_macos("Test checks for is_locked attribute and idempotent behavior - implementation is stateless")

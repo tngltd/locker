@@ -8,23 +8,17 @@ CONFIG_FILE="/etc/locker/config.json"
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "Creating default configuration file at $CONFIG_FILE"
     mkdir -p /etc/locker
-    cat > "$CONFIG_FILE" << 'EOF'
-{
-  "service": {
-    "log_level": "DEBUG",
-    "log_file": "/var/log/locker.log",
-    "name": "locker"
-  },
-  "monitoring": {
-    "check_interval_seconds": 5
-  },
-  "mode": "permissive",
-  "android_serial": null,
-  "services": []
-}
-EOF
-    chmod 644 "$CONFIG_FILE"
-    echo "Default configuration file created."
+    
+    # Copy from package-installed template
+    PACKAGE_CONFIG="/usr/share/locker/config.json"
+    if [ -f "$PACKAGE_CONFIG" ]; then
+        cp "$PACKAGE_CONFIG" "$CONFIG_FILE"
+        chmod 644 "$CONFIG_FILE"
+        echo "Default configuration file copied from package template."
+    else
+        echo "Error: Package config template not found at $PACKAGE_CONFIG"
+        exit 1
+    fi
 fi
 
 # Reload systemd (only if systemd is running)

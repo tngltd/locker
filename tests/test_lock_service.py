@@ -49,15 +49,7 @@ class TestLockService(unittest.TestCase):
             "monitoring": {
                 "check_interval_seconds": 5
             },
-            "services": ["ssh"],
-            "lock_policies": {
-                "disable_network_interfaces": True,
-                "block_all_ports": True
-            },
-            "unlock_policies": {
-                "restore_network_interfaces": True,
-                "restore_all_ports": True
-            }
+            "services": ["ssh"]
         }
         
         with open(self.config_path, 'w') as f:
@@ -114,12 +106,9 @@ class TestLockService(unittest.TestCase):
         result = service.load_android_serial()
         self.assertIsNone(result)
     
-    @patch('subprocess.run')
-    @patch('locker.service.pyudev.Context')
-    def test_get_connected_android_serials(self, mock_context_class, mock_subprocess):
+    @patch('locker.utils.pyudev.Context')
+    def test_get_connected_android_serials(self, mock_context_class):
         """Test getting connected Android device serials"""
-        # Mock ADB to fail (so it falls back to pyudev)
-        mock_subprocess.side_effect = FileNotFoundError("adb not found")
         
         # Create mock devices
         mock_device1 = Mock()
@@ -145,13 +134,14 @@ class TestLockService(unittest.TestCase):
         mock_context_class.return_value = mock_context
         
         service = LockService(self.config_path, config_dir=self.config_dir)
-        serials = service.get_connected_android_serials()
+        from locker import utils
+        serials = utils.get_connected_android_serials(logger=service.logger)
         
         self.assertEqual(len(serials), 2)
         self.assertIn('DEVICE123', serials)
         self.assertIn('DEVICE456', serials)
     
-    @patch('locker.service.pyudev.Context')
+    @patch('locker.utils.pyudev.Context')
     def test_get_connected_android_serials_no_devices(self, mock_context_class):
         """Test getting serials when no devices connected"""
         mock_context = Mock()
@@ -159,56 +149,66 @@ class TestLockService(unittest.TestCase):
         mock_context_class.return_value = mock_context
         
         service = LockService(self.config_path, config_dir=self.config_dir)
-        serials = service.get_connected_android_serials()
+        from locker import utils
+        serials = utils.get_connected_android_serials(logger=service.logger)
         
         self.assertEqual(len(serials), 0)
     
-    @patch('locker.service.pyudev.Context')
-    def test_get_connected_android_serials_adb_error(self, mock_context_class):
+    @patch('locker.utils.pyudev.Context')
+    def test_get_connected_android_serials_pyudev_error(self, mock_context_class):
         """Test getting serials when pyudev raises exception"""
         mock_context_class.side_effect = Exception("pyudev error")
         
         service = LockService(self.config_path, config_dir=self.config_dir)
-        serials = service.get_connected_android_serials()
+        from locker import utils
         
-        self.assertEqual(len(serials), 0)
+        # Should raise exception, not return empty list
+        with self.assertRaises(Exception) as context:
+            utils.get_connected_android_serials(logger=service.logger)
+        
+        self.assertIn("Failed to create pyudev context", str(context.exception))
     
-    @patch('locker.service.pyudev.Context')
-    def test_get_connected_android_serials_adb_not_found(self, mock_context_class):
+    @patch('locker.utils.pyudev.Context')
+    def test_get_connected_android_serials_pyudev_not_found(self, mock_context_class):
         """Test getting serials when pyudev not available"""
-        mock_context_class.side_effect = ImportError()
+        mock_context_class.side_effect = ImportError("pyudev not found")
         
         service = LockService(self.config_path, config_dir=self.config_dir)
-        serials = service.get_connected_android_serials()
+        from locker import utils
         
-        self.assertEqual(len(serials), 0)
+        # Should raise exception, not return empty list
+        with self.assertRaises(Exception) as context:
+            utils.get_connected_android_serials(logger=service.logger)
+        
+        self.assertIn("Failed to create pyudev context", str(context.exception))
     
-    @patch('locker.service.pyudev.Context')
+    @patch('locker.utils.pyudev.Context')
     def test_get_connected_android_serials_timeout(self, mock_context_class):
-        """Test getting serials with exception handling"""
+        """Test getting serials raises exception on timeout"""
         mock_context = Mock()
         mock_context.list_devices = Mock(side_effect=Exception("Timeout"))
         mock_context_class.return_value = mock_context
         
         service = LockService(self.config_path, config_dir=self.config_dir)
-        serials = service.get_connected_android_serials()
+        from locker import utils
         
-        self.assertEqual(len(serials), 0)
+        # Should raise exception, not return empty list
+        with self.assertRaises(Exception) as context:
+            utils.get_connected_android_serials(logger=service.logger)
+        
+        self.assertIn("Failed to list USB devices", str(context.exception))
     
-    @patch('subprocess.run')
-    @patch('locker.service.pyudev.Context')
-    def test_get_connected_android_serials_via_adb_interface(self, mock_context_class, mock_subprocess):
-        """Test getting serials via Android Debug Bridge interface check"""
-        # Mock ADB to fail (so it falls back to pyudev)
-        mock_subprocess.side_effect = FileNotFoundError("adb not found")
+    @patch('locker.utils.pyudev.Context')
+    def test_get_connected_android_serials_via_debug_interface(self, mock_context_class):
+        """Test getting serials via Android Debug Bridge interface class check"""
         
-        # Create mock device found via Android Debug Bridge interface (not vendor ID)
+        # Create mock device found via Android Debug Bridge interface class (not vendor ID)
         mock_device = Mock()
         mock_device.get = Mock(side_effect=lambda k, default='': {
             'ID_SERIAL_SHORT': 'DEVICE789',
             'ID_SERIAL': 'DEVICE789',
             'ID_VENDOR_ID': '0000',  # Not an Android vendor ID
-            'ID_USB_INTERFACES': 'ff:42:81',  # ADB interface class (0xff)
+            'ID_USB_INTERFACES': 'ff:42:81',  # Android Debug Bridge interface class (0xff)
             'DEVPATH': '/devices/pci0000:00/0000:00:14.0/usb1/1-3'
         }.get(k, default))
         
@@ -217,16 +217,14 @@ class TestLockService(unittest.TestCase):
         mock_context_class.return_value = mock_context
         
         service = LockService(self.config_path, config_dir=self.config_dir)
-        serials = service.get_connected_android_serials()
+        from locker import utils
+        serials = utils.get_connected_android_serials(logger=service.logger)
         
         self.assertIn('DEVICE789', serials)
     
-    @patch('subprocess.run')
-    @patch('locker.service.pyudev.Context')
-    def test_is_configured_device_connected_true(self, mock_context_class, mock_subprocess):
+    @patch('locker.utils.pyudev.Context')
+    def test_is_configured_device_connected_true(self, mock_context_class):
         """Test checking if configured device is connected - true"""
-        # Mock ADB to fail (so it falls back to pyudev)
-        mock_subprocess.side_effect = FileNotFoundError("adb not found")
         
         # Create mock device
         mock_device = Mock()
@@ -252,7 +250,7 @@ class TestLockService(unittest.TestCase):
         
         self.assertTrue(result)
     
-    @patch('locker.service.pyudev.Context')
+    @patch('locker.utils.pyudev.Context')
     def test_is_configured_device_connected_false(self, mock_context_class):
         """Test checking if configured device is connected - false"""
         # Create mock device with different serial
@@ -298,11 +296,7 @@ class TestLockService(unittest.TestCase):
         
         service = LockService(self.config_path, config_dir=self.config_dir)
         service.config.update({
-            'services': ['ssh'],
-            'lock_policies': {
-                'disable_network_interfaces': True,
-                'block_all_ports': True
-            }
+            'services': ['ssh']
         })
         
         service.lock_system()
@@ -319,7 +313,7 @@ class TestLockService(unittest.TestCase):
         })
         
         # Mock is_service_running to return True first time, False second time
-        with patch.object(service, 'is_service_running', side_effect=[True, False]):
+        with patch('locker.utils.is_service_running', side_effect=[True, False]):
             service.lock_system()
             first_call_count = mock_subprocess.call_count
             
@@ -348,10 +342,6 @@ class TestLockService(unittest.TestCase):
         service = LockService(self.config_path, config_dir=self.config_dir)
         service.is_locked = True
         service.config.update({
-            'unlock_policies': {
-                'restore_network_interfaces': True,
-                'restore_all_ports': True
-            },
             'services': ['ssh', 'nginx', 'apache']
         })
         
@@ -429,7 +419,6 @@ class TestLockService(unittest.TestCase):
             f.write('DEVICE123')
         
         service = LockService(self.config_path, config_dir=self.config_dir)
-        service.config.update({'lock_policies': {}})
         service.mode = 'enforcing'  # Set to enforcing mode to enable locking
         
         try:
@@ -475,15 +464,7 @@ class TestLockService(unittest.TestCase):
         
         service = LockService(self.config_path, config_dir=self.config_dir)
         service.config.update({
-            'services': ['ssh'],
-            'lock_policies': {
-                'disable_network_interfaces': False,
-                'block_all_ports': False
-            },
-            'unlock_policies': {
-                'restore_network_interfaces': True,
-                'restore_all_ports': True
-            }
+            'services': ['ssh']
         })
         
         # Service should start unlocked, then lock on startup if device not connected
@@ -501,7 +482,7 @@ class TestLockService(unittest.TestCase):
         # The device connects on call 3, so after 2 loop iterations it should be unlocked
         self.assertFalse(service.is_locked)
     
-    @patch('locker.service.pyudev.Context')
+    @patch('locker.utils.pyudev.Context')
     @patch('time.sleep')
     @skip_if_macos("Test checks for is_locked attribute which doesn't exist in stateless implementation")
     def test_run_device_disconnects_locks(self, mock_sleep, mock_context_class):
@@ -541,7 +522,6 @@ class TestLockService(unittest.TestCase):
             f.write('DEVICE123')
         
         service = LockService(self.config_path, config_dir=self.config_dir)
-        service.config.update({'lock_policies': {}, 'unlock_policies': {}})
         service.mode = 'enforcing'  # Set to enforcing mode to enable locking
         
         try:
@@ -681,34 +661,6 @@ class TestLockServiceConfig(unittest.TestCase):
         # Services list should exist (defaults to empty)
         self.assertIsInstance(service.config.get('services', []), list)
     
-    def test_get_system_info_success(self):
-        """Test get_system_info reads /etc/os-release"""
-        config = {
-            "service": {"log_level": "CRITICAL", "log_file": "/tmp/test.log"},
-            "monitoring": {"check_interval_seconds": 5}
-        }
-        with open(self.config_path, 'w') as f:
-            json.dump(config, f)
-        
-        service = LockService(self.config_path, config_dir=self.config_dir)
-        with patch('builtins.open', mock_open(read_data='PRETTY_NAME="Ubuntu 22.04"\n')):
-            result = service.get_system_info()
-            self.assertEqual(result, "Ubuntu 22.04")
-    
-    def test_get_system_info_file_not_found(self):
-        """Test get_system_info when file not found"""
-        config = {
-            "service": {"log_level": "CRITICAL", "log_file": "/tmp/test.log"},
-            "monitoring": {"check_interval_seconds": 5}
-        }
-        with open(self.config_path, 'w') as f:
-            json.dump(config, f)
-        
-        service = LockService(self.config_path, config_dir=self.config_dir)
-        with patch('builtins.open', side_effect=FileNotFoundError()):
-            result = service.get_system_info()
-            self.assertEqual(result, "Unknown Linux System")
-
 
 class TestLockServiceMain(unittest.TestCase):
     """Test cases for main() function"""

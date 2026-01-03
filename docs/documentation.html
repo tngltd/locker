@@ -292,7 +292,6 @@ sudo apt-get install -y build-essential debhelper dh-python python3-all python3-
                     <li><code>python3-pyudev</code></li>
                     <li><code>systemd</code></li>
                 </ul>
-                <p><strong>Note:</strong> The service uses <code>iptables</code> for network locking, which is typically pre-installed on Ubuntu systems. If not present, install it separately with <code>sudo apt install iptables</code>.</p>
 
                 <h3>Local Development</h3>
                 <p>For local development, install the package in development mode:</p>
@@ -477,8 +476,8 @@ sudo journalctl -u locker -n 50</code></pre>
                 <h3>Device Not Detected</h3>
                 <ul>
                     <li>Ensure USB debugging is enabled on Android device</li>
-                    <li>Check ADB is installed: <code>which adb</code></li>
-                    <li>Test connection: <code>adb devices</code></li>
+                    <li>Check if pyudev is installed: <code>python3 -c "import pyudev"</code></li>
+                    <li>Verify USB device detection: Devices are detected via udev</li>
                 </ul>
 
                 <h3>Switch Back to Permissive Mode</h3>

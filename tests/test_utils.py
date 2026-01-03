@@ -40,24 +40,7 @@ def has_systemctl():
         return False
 
 
-def has_iptables():
-    """Check if iptables command is available"""
-    import subprocess
-    try:
-        subprocess.run(['iptables', '--version'], 
-                      capture_output=True, 
-                      timeout=1)
-        return True
-    except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
-        return False
-
-
 def skip_if_no_systemctl(reason="Test requires systemctl"):
     """Skip test if systemctl is not available"""
     return unittest.skipUnless(has_systemctl(), reason)
-
-
-def skip_if_no_iptables(reason="Test requires iptables"):
-    """Skip test if iptables is not available"""
-    return unittest.skipUnless(has_iptables(), reason)
 

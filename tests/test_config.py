@@ -146,24 +146,6 @@ class TestConfigurationSystem(unittest.TestCase):
         # The actual error message is "Invalid JSON in config file: ..."
         self.assertIn('Invalid JSON', str(context.exception))
 
-    @patch('signal.signal')
-    def test_load_config_with_policies(self, mock_signal):
-        """Test loading config with lock/unlock policies (optional fields)"""
-        config = self.valid_config.copy()
-        config.update({
-            "services": ["ssh"],
-            "lock_policies": {
-                "disable_network_interfaces": True
-            }
-        })
-        with open(self.config_path, 'w') as f:
-            json.dump(config, f)
-
-        service = LockService(self.config_path, config_dir=self.config_dir)
-        # Policies are optional and should be preserved if present
-        self.assertIsNotNone(service.config.get('lock_policies'))
-        self.assertIn('ssh', service.config.get('services', []))
-        self.assertEqual(service.config['lock_policies']['disable_network_interfaces'], True)
 
 
 if __name__ == '__main__':
