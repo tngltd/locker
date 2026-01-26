@@ -142,9 +142,19 @@ def save_config(config: Dict, config_path: str):
     
     Raises:
         OSError: If the file cannot be written.
+        PermissionError: If the file cannot be written due to permissions.
     """
-    os.makedirs(os.path.dirname(config_path), exist_ok=True)
-    with open(config_path, 'w') as f:
-        json.dump(config, f, indent=2)
-    os.chmod(config_path, 0o644)
+    config_dir = os.path.dirname(config_path)
+    try:
+        os.makedirs(config_dir, exist_ok=True)
+        with open(config_path, 'w') as f:
+            json.dump(config, f, indent=2)
+        os.chmod(config_path, 0o644)
+    except PermissionError:
+        raise PermissionError(
+            f"Permission denied: Cannot write to {config_path}. "
+            f"This file requires root permissions. Try running with sudo."
+        )
+    except OSError as e:
+        raise OSError(f"Failed to save configuration to {config_path}: {e}")
 

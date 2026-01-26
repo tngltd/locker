@@ -10,7 +10,7 @@ import pyudev
 
 
 # Android vendor IDs for device detection
-ANDROID_VENDOR_IDS = ['18d1', '0bb4', '04e8', '24e3', '0955', '201e', '0e79', '04c5', '2a47']
+ANDROID_VENDOR_IDS = ['2717', '18d1', '0bb4', '04e8', '24e3', '0955', '201e', '0e79', '04c5', '2a47']
 
 
 def is_service_running(service_name: str, logger: Optional[logging.Logger] = None, log_check: bool = False) -> bool:

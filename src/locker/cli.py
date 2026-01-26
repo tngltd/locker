@@ -22,8 +22,8 @@ class LockCLI:
     
     def get_android_serial(self) -> Optional[str]:
         """Get configured Android device serial (try config.json first, then file as fallback)"""
-        config = config.load_config(self.config_path)
-        return config['android_serial']
+        loaded_config = config.load_config(self.config_path)
+        return loaded_config['android_serial']
     
     def get_android_serial_cmd(self):
         """Get Android serial from config"""
@@ -127,11 +127,24 @@ class LockCLI:
             return
         
         # Save to config
-        config = self.load_config()
-        config['android_serial'] = serial
-        config.save_config(config, self.config_path)
-        print()
-        print(f"Android serial configured: {serial}")
+        try:
+            loaded_config = config.load_config(self.config_path)
+            loaded_config['android_serial'] = serial
+            config.save_config(loaded_config, self.config_path)
+            print()
+            print(f"Android serial configured: {serial}")
+        except PermissionError as e:
+            print(f"Error: {e}")
+            print()
+            print("To configure the Android serial, you need write permissions to /etc/locker/config.json")
+            print("Options:")
+            print("  1. Run with sudo: sudo locker set-android-serial")
+            print("  2. Join the locker group: sudo usermod -a -G locker $USER")
+            print("     Then log out and back in, or run: newgrp locker")
+            return
+        except Exception as e:
+            print(f"Error saving configuration: {e}")
+            return
 
     
     def add_service(self, service_name: str):
@@ -140,26 +153,44 @@ class LockCLI:
         print()
         
         try:
-            config = self.load_config()
-            if 'services' not in config:
-                config['services'] = []
-            elif not isinstance(config['services'], list):
+            loaded_config = config.load_config(self.config_path)
+            if 'services' not in loaded_config:
+                loaded_config['services'] = []
+            elif not isinstance(loaded_config['services'], list):
                 # Convert old format to new format
-                if isinstance(config['services'], dict):
-                    old_stop = config['services'].get('stop_when_locked', [])
-                    old_start = config['services'].get('start_when_unlocked', [])
-                    config['services'] = list(set(old_stop + old_start))
+                if isinstance(loaded_config['services'], dict):
+                    old_stop = loaded_config['services'].get('stop_when_locked', [])
+                    old_start = loaded_config['services'].get('start_when_unlocked', [])
+                    loaded_config['services'] = list(set(old_stop + old_start))
                 else:
-                    config['services'] = []
+                    loaded_config['services'] = []
             
-            services_list = config['services']
+            services_list = loaded_config['services']
             if service_name not in services_list:
                 services_list.append(service_name)
-                config['services'] = services_list
-                config.save_config(config, self.config_path)
-                print(f"Service \"{service_name}\" added. It will be started when device connects and stopped when device disconnects.")
+                loaded_config['services'] = services_list
+                try:
+                    config.save_config(loaded_config, self.config_path)
+                    print(f"Service \"{service_name}\" added. It will be started when device connects and stopped when device disconnects.")
+                except PermissionError as e:
+                    print(f"Error: {e}")
+                    print()
+                    print("To add a service, you need write permissions to /etc/locker/config.json")
+                    print("Options:")
+                    print(f"  1. Run with sudo: sudo locker add-service {service_name}")
+                    print("  2. Join the locker group: sudo usermod -a -G locker $USER")
+                    print("     Then log out and back in, or run: newgrp locker")
+                    return
             else:
                 print(f"Service \"{service_name}\" is already in the services list.")
+        except PermissionError as e:
+            print(f"Error: {e}")
+            print()
+            print("To add a service, you need write permissions to /etc/locker/config.json")
+            print("Options:")
+            print(f"  1. Run with sudo: sudo locker add-service {service_name}")
+            print("  2. Join the locker group: sudo usermod -a -G locker $USER")
+            print("     Then log out and back in, or run: newgrp locker")
         except Exception as e:
             print(f"Error adding service: {e}")
     
@@ -169,26 +200,44 @@ class LockCLI:
         print()
         
         try:
-            config = self.load_config()
-            if 'services' not in config:
-                config['services'] = []
-            elif not isinstance(config['services'], list):
+            loaded_config = config.load_config(self.config_path)
+            if 'services' not in loaded_config:
+                loaded_config['services'] = []
+            elif not isinstance(loaded_config['services'], list):
                 # Convert old format to new format
-                if isinstance(config['services'], dict):
-                    old_stop = config['services'].get('stop_when_locked', [])
-                    old_start = config['services'].get('start_when_unlocked', [])
-                    config['services'] = list(set(old_stop + old_start))
+                if isinstance(loaded_config['services'], dict):
+                    old_stop = loaded_config['services'].get('stop_when_locked', [])
+                    old_start = loaded_config['services'].get('start_when_unlocked', [])
+                    loaded_config['services'] = list(set(old_stop + old_start))
                 else:
-                    config['services'] = []
+                    loaded_config['services'] = []
             
-            services_list = config['services']
+            services_list = loaded_config['services']
             if service_name in services_list:
                 services_list.remove(service_name)
-                config['services'] = services_list
-                config.save_config(config, self.config_path)
-                print(f"Service \"{service_name}\" removed. It will no longer be managed by the locker service.")
+                loaded_config['services'] = services_list
+                try:
+                    config.save_config(loaded_config, self.config_path)
+                    print(f"Service \"{service_name}\" removed. It will no longer be managed by the locker service.")
+                except PermissionError as e:
+                    print(f"Error: {e}")
+                    print()
+                    print("To remove a service, you need write permissions to /etc/locker/config.json")
+                    print("Options:")
+                    print(f"  1. Run with sudo: sudo locker remove-service {service_name}")
+                    print("  2. Join the locker group: sudo usermod -a -G locker $USER")
+                    print("     Then log out and back in, or run: newgrp locker")
+                    return
             else:
                 print(f"Service \"{service_name}\" is not in the services list.")
+        except PermissionError as e:
+            print(f"Error: {e}")
+            print()
+            print("To remove a service, you need write permissions to /etc/locker/config.json")
+            print("Options:")
+            print(f"  1. Run with sudo: sudo locker remove-service {service_name}")
+            print("  2. Join the locker group: sudo usermod -a -G locker $USER")
+            print("     Then log out and back in, or run: newgrp locker")
         except Exception as e:
             print(f"Error removing service: {e}")
     
@@ -198,7 +247,7 @@ class LockCLI:
         print()
         
         if not mode:
-            current_mode = self.load_config().get('mode', 'permissive')
+            current_mode = config.load_config(self.config_path).get('mode', 'permissive')
             print(f"Current mode: {current_mode}")
             print()
             print("Modes:")
@@ -217,32 +266,50 @@ class LockCLI:
             return
         
         try:
-            config = self.load_config()
+            loaded_config = config.load_config(self.config_path)
             
             # In enforcing mode, require Android serial to be configured
             if mode == 'enforcing':
-                serial = config.get('android_serial')
+                serial = loaded_config.get('android_serial')
                 if not serial:
                     print("Error: Cannot set enforcing mode without configured Android serial.")
                     print("Run \"locker set-android-serial\" first.")
                     return
             
-            config['mode'] = mode
-            config.save_config(config, self.config_path)
-            print(f"Mode set to: {mode}")
-            
-            if mode == 'enforcing':
+            loaded_config['mode'] = mode
+            try:
+                config.save_config(loaded_config, self.config_path)
+                print(f"Mode set to: {mode}")
+                
+                if mode == 'enforcing':
+                    print()
+                    print("WARNING: In enforcing mode, the system will lock if the configured")
+                    print("         Android device is not connected.")
+            except PermissionError as e:
+                print(f"Error: {e}")
                 print()
-                print("WARNING: In enforcing mode, the system will lock if the configured")
-                print("         Android device is not connected.")
+                print("To set the mode, you need write permissions to /etc/locker/config.json")
+                print("Options:")
+                print(f"  1. Run with sudo: sudo locker set-mode {mode}")
+                print("  2. Join the locker group: sudo usermod -a -G locker $USER")
+                print("     Then log out and back in, or run: newgrp locker")
+                return
+        except PermissionError as e:
+            print(f"Error: {e}")
+            print()
+            print("To set the mode, you need write permissions to /etc/locker/config.json")
+            print("Options:")
+            print(f"  1. Run with sudo: sudo locker set-mode {mode}")
+            print("  2. Join the locker group: sudo usermod -a -G locker $USER")
+            print("     Then log out and back in, or run: newgrp locker")
         except Exception as e:
             print(f"Error setting mode: {e}")
     
     def logs(self, lines: int = 50, follow: bool = False):
         """Show service logs"""
         try:
-            config = self.load_config()
-            log_file = config.get('service', {}).get('log_file', '/var/log/locker.log')
+            loaded_config = config.load_config(self.config_path)
+            log_file = loaded_config['service'].get('log_file', '/var/log/locker.log')
         except:
             log_file = "/var/log/locker.log"
         
@@ -379,9 +446,17 @@ class LockCLI:
     def save_android_serial(self, serial: str):
         """Save Android device serial to config"""
         try:
-            config = self.load_config()
-            config['android_serial'] = serial
-            config.save_config(config, self.config_path)
+            loaded_config = config.load_config(self.config_path)
+            loaded_config['android_serial'] = serial
+            config.save_config(loaded_config, self.config_path)
+        except PermissionError as e:
+            print(f"Error: {e}")
+            print()
+            print("To save the Android serial, you need write permissions to /etc/locker/config.json")
+            print("Options:")
+            print("  1. Run with sudo: sudo locker setup")
+            print("  2. Join the locker group: sudo usermod -a -G locker $USER")
+            print("     Then log out and back in, or run: newgrp locker")
         except Exception as e:
             print(f"Error saving Android serial: {e}")
     
@@ -461,10 +536,10 @@ class LockCLI:
             return
         
         try:
-            config = self.load_config()
+            loaded_config = config.load_config(self.config_path)
             
             # Start configured services (only if not running)
-            services = config.get('services', [])
+            services = loaded_config.get('services', [])
             for service_name in services:
                 try:
                     # Check if service is already running before starting
@@ -510,8 +585,8 @@ class LockCLI:
         print()
         
         # System lock status (based on services)
-        config = self.load_config()
-        services = config.get('services', [])
+        loaded_config = config.load_config(self.config_path)
+        services = loaded_config.get('services', [])
         if services:
             print("Configured services:")
             for service_name in services:

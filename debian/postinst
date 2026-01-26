@@ -3,22 +3,75 @@ set -e
 
 # Post-installation script for locker
 
+# Create locker group if it doesn't exist
+if ! getent group locker > /dev/null 2>&1; then
+    echo "Creating locker group..."
+    groupadd -r locker || true
+fi
+
+# Get the user who installed the package (if available)
+INSTALL_USER="${SUDO_USER:-${USER:-}}"
+if [ -n "$INSTALL_USER" ] && id "$INSTALL_USER" > /dev/null 2>&1; then
+    echo "Adding user $INSTALL_USER to locker group..."
+    usermod -a -G locker "$INSTALL_USER" || true
+    echo "Note: You may need to log out and back in for group changes to take effect."
+    echo "      Or run: newgrp locker"
+fi
+
+# Ensure configuration directory exists with proper permissions
+CONFIG_DIR="/etc/locker"
+CONFIG_FILE="$CONFIG_DIR/config.json"
+mkdir -p "$CONFIG_DIR"
+chmod 775 "$CONFIG_DIR"  # Allow group write
+chown root:locker "$CONFIG_DIR"
+
 # Ensure configuration file exists
-CONFIG_FILE="/etc/locker/config.json"
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "Creating default configuration file at $CONFIG_FILE"
-    mkdir -p /etc/locker
     
     # Copy from package-installed template
     PACKAGE_CONFIG="/usr/share/locker/config.json"
     if [ -f "$PACKAGE_CONFIG" ]; then
         cp "$PACKAGE_CONFIG" "$CONFIG_FILE"
-        chmod 644 "$CONFIG_FILE"
+        chmod 664 "$CONFIG_FILE"  # Allow group write
+        chown root:locker "$CONFIG_FILE"
         echo "Default configuration file copied from package template."
     else
         echo "Error: Package config template not found at $PACKAGE_CONFIG"
         exit 1
     fi
+else
+    # Ensure existing config file has proper permissions
+    chmod 664 "$CONFIG_FILE"  # Allow group write
+    chown root:locker "$CONFIG_FILE"
+fi
+
+# Verify lockerd executable exists
+if [ ! -f /usr/bin/lockerd ]; then
+    echo "Warning: /usr/bin/lockerd not found. Creating wrapper script..."
+    mkdir -p /usr/bin
+    cat > /usr/bin/lockerd << 'LOCKERD_EOF'
+#!/usr/bin/env python3
+from locker.service import main
+if __name__ == '__main__':
+    main()
+LOCKERD_EOF
+    chmod 755 /usr/bin/lockerd
+    echo "Created /usr/bin/lockerd wrapper script."
+fi
+
+# Verify locker executable exists
+if [ ! -f /usr/bin/locker ]; then
+    echo "Warning: /usr/bin/locker not found. Creating wrapper script..."
+    mkdir -p /usr/bin
+    cat > /usr/bin/locker << 'LOCKER_EOF'
+#!/usr/bin/env python3
+from locker.cli import main
+if __name__ == '__main__':
+    main()
+LOCKER_EOF
+    chmod 755 /usr/bin/locker
+    echo "Created /usr/bin/locker wrapper script."
 fi
 
 # Reload systemd (only if systemd is running)
@@ -28,8 +81,29 @@ if command -v systemctl >/dev/null 2>&1; then
         systemctl daemon-reload
         
         # Enable and start the service
-        systemctl enable locker || true
-        systemctl start locker || true
+        if systemctl enable locker; then
+            echo "Service enabled successfully."
+        else
+            echo "Warning: Failed to enable service."
+        fi
+        
+        # Wait a moment for daemon-reload to complete
+        sleep 1
+        
+        if systemctl start locker; then
+            # Verify service actually started
+            sleep 2
+            if systemctl is-active --quiet locker; then
+                echo "Service started successfully."
+            else
+                echo "Warning: Service start command succeeded but service is not active."
+                echo "Check logs with: systemctl status locker"
+                systemctl status locker --no-pager -l || true
+            fi
+        else
+            echo "Warning: Failed to start service. Check logs with: systemctl status locker"
+            systemctl status locker --no-pager -l || true
+        fi
     elif [ -d /run/systemd/system ]; then
         # Systemd is installed but not running (e.g., in Docker)
         # Try to enable it anyway (will be started on next boot or when systemd starts)
@@ -84,6 +158,12 @@ else
     echo "  - Directly: lockerd"
 fi
 echo "Next steps:"
+if [ -n "$INSTALL_USER" ] && id "$INSTALL_USER" > /dev/null 2>&1; then
+    echo "  Note: User $INSTALL_USER has been added to the 'locker' group."
+    echo "        You can run locker commands without sudo after logging out and back in,"
+    echo "        or by running: newgrp locker"
+    echo ""
+fi
 echo "  1. Run 'locker setup' for interactive initial configuration"
 echo "     Or manually:"
 echo "     - Run 'locker list-devices' to see connected devices"
