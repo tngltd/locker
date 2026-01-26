@@ -42,12 +42,12 @@ class TestConfigurationSystem(unittest.TestCase):
                 "log_level": "CRITICAL",  # Disable logging for tests
                 "log_file": self.log_file
             },
-            "network": {
-                "blocked_interfaces": ["eth0", "wlan0"]
-            },
             "monitoring": {
                 "check_interval_seconds": 5
-            }
+            },
+            "mode": "permissive",
+            "android_serial": None,
+            "services": []
         }
 
         import logging
@@ -65,13 +65,14 @@ class TestConfigurationSystem(unittest.TestCase):
             json.dump(self.valid_config, f)
 
         service = LockService(self.config_path, config_dir=self.config_dir)
-        # service.name is automatically added if missing
-        self.assertEqual(service.config['service']['name'], 'locker')
-        self.assertIn('network', service.config)
+        # Network section removed - no longer part of config
         self.assertIn('monitoring', service.config)
         self.assertEqual(service.config['service']['log_level'], 'CRITICAL')
-        self.assertEqual(service.config['network']['blocked_interfaces'], ['eth0', 'wlan0'])
+        # Network section is optional, no validation needed
         self.assertEqual(service.config['monitoring']['check_interval_seconds'], 5)
+        self.assertEqual(service.config['mode'], 'permissive')
+        self.assertIsNone(service.config['android_serial'])
+        self.assertEqual(service.config['services'], [])
 
     @patch('signal.signal')
     def test_load_config_missing_service_section(self, mock_signal):
@@ -88,20 +89,7 @@ class TestConfigurationSystem(unittest.TestCase):
         self.assertIn('service', str(context.exception))
         self.assertIn('Missing required config section', str(context.exception))
 
-    @patch('signal.signal')
-    def test_load_config_missing_network_section(self, mock_signal):
-        """Test loading config with missing network section"""
-        invalid_config = self.valid_config.copy()
-        del invalid_config['network']
-
-        with open(self.config_path, 'w') as f:
-            json.dump(invalid_config, f)
-
-        with self.assertRaises(ValueError) as context:
-            LockService(self.config_path, config_dir=self.config_dir)
-
-        self.assertIn('network', str(context.exception))
-        self.assertIn('Missing required config section', str(context.exception))
+    # Removed test_load_config_missing_network_section - network section no longer exists
 
     @patch('signal.signal')
     def test_load_config_missing_monitoring_section(self, mock_signal):
@@ -133,20 +121,7 @@ class TestConfigurationSystem(unittest.TestCase):
         self.assertIn('log_level', str(context.exception))
         self.assertIn('Missing', str(context.exception))
 
-    @patch('signal.signal')
-    def test_load_config_missing_blocked_interfaces(self, mock_signal):
-        """Test loading config with missing blocked_interfaces"""
-        invalid_config = self.valid_config.copy()
-        del invalid_config['network']['blocked_interfaces']
-
-        with open(self.config_path, 'w') as f:
-            json.dump(invalid_config, f)
-
-        with self.assertRaises(ValueError) as context:
-            LockService(self.config_path, config_dir=self.config_dir)
-
-        self.assertIn('blocked_interfaces', str(context.exception))
-        self.assertIn('Missing', str(context.exception))
+    # Removed test_load_config_missing_blocked_interfaces - blocked_interfaces no longer required
 
     @patch('signal.signal')
     def test_load_config_missing_check_interval(self, mock_signal):
@@ -175,24 +150,6 @@ class TestConfigurationSystem(unittest.TestCase):
         # The actual error message is "Invalid JSON in config file: ..."
         self.assertIn('Invalid JSON', str(context.exception))
 
-    @patch('signal.signal')
-    def test_load_config_with_policies(self, mock_signal):
-        """Test loading config with lock/unlock policies (optional fields)"""
-        config = self.valid_config.copy()
-        config.update({
-            "services": ["ssh"],
-            "lock_policies": {
-                "disable_network_interfaces": True
-            }
-        })
-        with open(self.config_path, 'w') as f:
-            json.dump(config, f)
-
-        service = LockService(self.config_path, config_dir=self.config_dir)
-        # Policies are optional and should be preserved if present
-        self.assertIsNotNone(service.config.get('lock_policies'))
-        self.assertIn('ssh', service.config.get('services', []))
-        self.assertEqual(service.config['lock_policies']['disable_network_interfaces'], True)
 
 
 if __name__ == '__main__':

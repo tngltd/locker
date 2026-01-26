@@ -1,0 +1,38 @@
+# Cursor Rules for Locker Project
+
+## Testing Requirements
+
+1. **Always run tests after making code changes**
+   - After any code modification, run the full test suite: `python3 -m unittest discover -s tests`
+   - Check for both test failures AND ResourceWarnings: `python3 -W default::ResourceWarning -m unittest discover -s tests`
+   - Verify all tests pass before considering changes complete
+
+2. **Test failure handling**
+   - If tests fail after making changes, attempt to fix them without changing the intended behavior
+   - If unable to fix test failures without changing how things work, clearly report:
+     - Which tests are failing
+     - What the failures are
+     - Why the fix would require changing behavior
+     - Do NOT silently ignore test failures
+
+3. **ResourceWarning handling**
+   - Always check for ResourceWarnings (unclosed file handles, etc.)
+   - Fix ResourceWarnings by properly closing resources (file handles, logging handlers, etc.)
+   - Never leave ResourceWarnings unfixed
+
+4. **Test execution**
+   - Run tests with: `python3 -W default::ResourceWarning -m unittest discover -s tests`
+   - Check output for: `OK` status and `No ResourceWarnings found!`
+   - If tests are skipped, that's acceptable as long as no failures occur
+
+5. **Code changes**
+   - Maintain backward compatibility unless explicitly requested
+   - Preserve existing API contracts and behavior
+   - When fixing bugs, ensure tests validate the fix
+
+## Code Quality
+
+- Close file handles and logging handlers properly to avoid ResourceWarnings
+- Handle exceptions appropriately without breaking existing behavior
+- Maintain consistency with existing code patterns
+

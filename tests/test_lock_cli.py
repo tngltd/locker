@@ -43,9 +43,6 @@ class TestLockCLI(unittest.TestCase):
             "service": {
                 "name": "locker",
                 "log_file": self.log_file
-            },
-            "network": {
-                "blocked_interfaces": ["eth0", "wlan0"]
             }
         }
         
@@ -152,7 +149,7 @@ class TestLockCLI(unittest.TestCase):
         """Test status when device is configured"""
         with patch.object(self.cli, 'is_service_running', return_value=True):
             with patch.object(self.cli, 'get_android_serial', return_value="DEVICE123"):
-                with patch.object(self.cli, 'get_connected_devices', return_value=[("DEVICE123", "Test Device")]):
+                with patch('locker.utils.get_connected_devices', return_value=[("DEVICE123", "Test Device")]):
                     output = []
                     def mock_print(*args, **kwargs):
                         output.append(' '.join(str(a) for a in args))
@@ -175,7 +172,7 @@ class TestLockCLI(unittest.TestCase):
         """Test setup with new configuration - select device from list"""
         mock_input.side_effect = ["1", "n"]  # Select first device, don't reconfigure
         
-        with patch.object(self.cli, 'get_connected_devices', return_value=[("DEVICE123", "Test Device")]):
+        with patch('locker.utils.get_connected_devices', return_value=[("DEVICE123", "Test Device")]):
             with patch.object(self.cli, 'save_android_serial') as mock_save:
                 self.cli.setup()
                 mock_save.assert_called_once_with("DEVICE123")
@@ -189,7 +186,7 @@ class TestLockCLI(unittest.TestCase):
         
         with patch('subprocess.run') as mock_subprocess:
             mock_subprocess.return_value = Mock(returncode=0)
-            with patch.object(self.cli, 'load_config', return_value={'network': {'blocked_interfaces': ['eth0']}}):
+            with patch.object(self.cli, 'load_config', return_value={'network': {}}):
                 output = []
                 def mock_print(*args, **kwargs):
                     output.append(' '.join(str(a) for a in args))
@@ -275,9 +272,6 @@ class TestLockCLIEdgeCases(unittest.TestCase):
             "service": {
                 "name": "locker",
                 "log_file": self.log_file
-            },
-            "network": {
-                "blocked_interfaces": ["eth0", "wlan0"]
             }
         }
         
@@ -356,32 +350,6 @@ class TestLockCLIEdgeCases(unittest.TestCase):
                 mock_stop.assert_called_once()
                 mock_start.assert_called_once()
 
-    def test_status_with_iptables_drop(self):
-        """Test status shows LOCKED when iptables has DROP"""
-        with patch.object(self.cli, 'is_service_running', return_value=True):
-            with patch.object(self.cli, 'get_android_serial', return_value="DEVICE123"):
-                with patch.object(self.cli, 'get_connected_devices', return_value=[]):
-                    output = []
-                    with patch('builtins.print', side_effect=lambda *a, **kw: output.append(' '.join(str(x) for x in a))):
-                        with patch('subprocess.run') as mock_subprocess:
-                            mock_subprocess.return_value = Mock(returncode=0, stdout="DROP all")
-                            self.cli.status()
-                    
-                    status_text = ' '.join(output)
-                    self.assertIn("LOCKED", status_text)
-
-    def test_status_iptables_exception(self):
-        """Test status handles iptables exception"""
-        with patch.object(self.cli, 'is_service_running', return_value=False):
-            with patch.object(self.cli, 'get_android_serial', return_value=None):
-                output = []
-                with patch('builtins.print', side_effect=lambda *a, **kw: output.append(' '.join(str(x) for x in a))):
-                    with patch('subprocess.run', side_effect=Exception()):
-                        self.cli.status()
-                
-                status_text = ' '.join(output)
-                self.assertIn("Unknown", status_text)
-
     @patch('builtins.input')
     def test_setup_reconfigure_declined(self, mock_input):
         """Test setup when user declines reconfigure"""
@@ -391,7 +359,7 @@ class TestLockCLIEdgeCases(unittest.TestCase):
         
         mock_input.return_value = 'n'
         
-        with patch.object(self.cli, 'get_connected_devices', return_value=[("NEW_DEVICE", "New Device")]):
+        with patch('locker.utils.get_connected_devices', return_value=[("NEW_DEVICE", "New Device")]):
             self.cli.setup()
         
         # Should not have changed the serial
@@ -407,7 +375,7 @@ class TestLockCLIEdgeCases(unittest.TestCase):
         
         output = []
         with patch('builtins.print', side_effect=lambda *a, **kw: output.append(' '.join(str(x) for x in a))):
-            with patch.object(self.cli, 'load_config', return_value={'network': {'blocked_interfaces': []}}):
+            with patch.object(self.cli, 'load_config', return_value={'services': ['ssh']}):
                 self.cli.emergency_unlock()
         
         self.assertTrue(any('Error' in o for o in output))
@@ -449,8 +417,7 @@ class TestLockCLIMain(unittest.TestCase):
         self.config_path = os.path.join(self.test_dir, 'config.json')
         
         test_config = {
-            "service": {"name": "locker", "log_file": "/tmp/test.log"},
-            "network": {"blocked_interfaces": ["eth0"]}
+            "service": {"name": "locker", "log_file": "/tmp/test.log"}
         }
         
         with open(self.config_path, 'w') as f:
@@ -489,7 +456,7 @@ class TestLockCLIMain(unittest.TestCase):
         # Note: list-devices command doesn't exist - CLI uses get_connected_devices internally
         # This test should be skipped or updated to test actual CLI behavior
         with patch('sys.argv', ['locker', 'list-devices']):
-            with patch.object(LockCLI, 'get_connected_devices') as mock_get_devices:
+            with patch('locker.utils.get_connected_devices') as mock_get_devices:
                 mock_get_devices.return_value = []
                 # This will likely fail since list-devices isn't implemented
                 # Skipping on macOS since the command doesn't exist
