@@ -7,8 +7,6 @@ set -e
 CONFIG_DIR="/etc/locker"
 CONFIG_FILE="$CONFIG_DIR/config.json"
 mkdir -p "$CONFIG_DIR"
-chmod 775 "$CONFIG_DIR"  # Allow group write
-chown root:locker "$CONFIG_DIR"
 
 # Ensure configuration file exists
 if [ ! -f "$CONFIG_FILE" ]; then
