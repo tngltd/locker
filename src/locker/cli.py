@@ -8,6 +8,7 @@ import os
 import argparse
 import subprocess
 import time
+import warnings
 from typing import Optional, List
 from locker import utils
 from locker import config
@@ -20,6 +21,14 @@ class LockCLI:
         self.pid_file = "/var/run/locker.pid"
         self.service_pid_file = self.pid_file  # Alias for test compatibility
     
+    def load_config(self):
+        """Load configuration from config_path. Used by tests and for consistency."""
+        return config.load_config(self.config_path)
+
+    def save_config(self, config_dict: dict, suggested_sudo_cmd: Optional[str] = None):
+        """Save configuration to config_path. Used by tests and for consistency."""
+        config.save_config(config_dict, self.config_path, suggested_sudo_cmd=suggested_sudo_cmd)
+
     def get_android_serial(self) -> Optional[str]:
         """Get configured Android device serial (try config.json first, then file as fallback)"""
         loaded_config = config.load_config(self.config_path)
@@ -130,17 +139,11 @@ class LockCLI:
         try:
             loaded_config = config.load_config(self.config_path)
             loaded_config['android_serial'] = serial
-            config.save_config(loaded_config, self.config_path)
+            config.save_config(loaded_config, self.config_path, suggested_sudo_cmd="sudo locker set-android-serial")
             print()
             print(f"Android serial configured: {serial}")
         except PermissionError as e:
-            print(f"Error: {e}")
-            print()
-            print("To configure the Android serial, you need write permissions to /etc/locker/config.json")
-            print("Options:")
-            print("  1. Run with sudo: sudo locker set-android-serial")
-            print("  2. Join the locker group: sudo usermod -a -G locker $USER")
-            print("     Then log out and back in, or run: newgrp locker")
+            print(e)
             return
         except Exception as e:
             print(f"Error saving configuration: {e}")
@@ -170,27 +173,15 @@ class LockCLI:
                 services_list.append(service_name)
                 loaded_config['services'] = services_list
                 try:
-                    config.save_config(loaded_config, self.config_path)
+                    config.save_config(loaded_config, self.config_path, suggested_sudo_cmd=f"sudo locker add-service {service_name}")
                     print(f"Service \"{service_name}\" added. It will be started when device connects and stopped when device disconnects.")
                 except PermissionError as e:
-                    print(f"Error: {e}")
-                    print()
-                    print("To add a service, you need write permissions to /etc/locker/config.json")
-                    print("Options:")
-                    print(f"  1. Run with sudo: sudo locker add-service {service_name}")
-                    print("  2. Join the locker group: sudo usermod -a -G locker $USER")
-                    print("     Then log out and back in, or run: newgrp locker")
+                    print(e)
                     return
             else:
                 print(f"Service \"{service_name}\" is already in the services list.")
         except PermissionError as e:
-            print(f"Error: {e}")
-            print()
-            print("To add a service, you need write permissions to /etc/locker/config.json")
-            print("Options:")
-            print(f"  1. Run with sudo: sudo locker add-service {service_name}")
-            print("  2. Join the locker group: sudo usermod -a -G locker $USER")
-            print("     Then log out and back in, or run: newgrp locker")
+            print(e)
         except Exception as e:
             print(f"Error adding service: {e}")
     
@@ -217,27 +208,15 @@ class LockCLI:
                 services_list.remove(service_name)
                 loaded_config['services'] = services_list
                 try:
-                    config.save_config(loaded_config, self.config_path)
+                    config.save_config(loaded_config, self.config_path, suggested_sudo_cmd=f"sudo locker remove-service {service_name}")
                     print(f"Service \"{service_name}\" removed. It will no longer be managed by the locker service.")
                 except PermissionError as e:
-                    print(f"Error: {e}")
-                    print()
-                    print("To remove a service, you need write permissions to /etc/locker/config.json")
-                    print("Options:")
-                    print(f"  1. Run with sudo: sudo locker remove-service {service_name}")
-                    print("  2. Join the locker group: sudo usermod -a -G locker $USER")
-                    print("     Then log out and back in, or run: newgrp locker")
+                    print(e)
                     return
             else:
                 print(f"Service \"{service_name}\" is not in the services list.")
         except PermissionError as e:
-            print(f"Error: {e}")
-            print()
-            print("To remove a service, you need write permissions to /etc/locker/config.json")
-            print("Options:")
-            print(f"  1. Run with sudo: sudo locker remove-service {service_name}")
-            print("  2. Join the locker group: sudo usermod -a -G locker $USER")
-            print("     Then log out and back in, or run: newgrp locker")
+            print(e)
         except Exception as e:
             print(f"Error removing service: {e}")
     
@@ -278,7 +257,7 @@ class LockCLI:
             
             loaded_config['mode'] = mode
             try:
-                config.save_config(loaded_config, self.config_path)
+                config.save_config(loaded_config, self.config_path, suggested_sudo_cmd=f"sudo locker set-mode {mode}")
                 print(f"Mode set to: {mode}")
                 
                 if mode == 'enforcing':
@@ -286,22 +265,10 @@ class LockCLI:
                     print("WARNING: In enforcing mode, the system will lock if the configured")
                     print("         Android device is not connected.")
             except PermissionError as e:
-                print(f"Error: {e}")
-                print()
-                print("To set the mode, you need write permissions to /etc/locker/config.json")
-                print("Options:")
-                print(f"  1. Run with sudo: sudo locker set-mode {mode}")
-                print("  2. Join the locker group: sudo usermod -a -G locker $USER")
-                print("     Then log out and back in, or run: newgrp locker")
+                print(e)
                 return
         except PermissionError as e:
-            print(f"Error: {e}")
-            print()
-            print("To set the mode, you need write permissions to /etc/locker/config.json")
-            print("Options:")
-            print(f"  1. Run with sudo: sudo locker set-mode {mode}")
-            print("  2. Join the locker group: sudo usermod -a -G locker $USER")
-            print("     Then log out and back in, or run: newgrp locker")
+            print(e)
         except Exception as e:
             print(f"Error setting mode: {e}")
     
@@ -448,79 +415,11 @@ class LockCLI:
         try:
             loaded_config = config.load_config(self.config_path)
             loaded_config['android_serial'] = serial
-            config.save_config(loaded_config, self.config_path)
+            config.save_config(loaded_config, self.config_path, suggested_sudo_cmd="sudo locker set-android-serial")
         except PermissionError as e:
-            print(f"Error: {e}")
-            print()
-            print("To save the Android serial, you need write permissions to /etc/locker/config.json")
-            print("Options:")
-            print("  1. Run with sudo: sudo locker setup")
-            print("  2. Join the locker group: sudo usermod -a -G locker $USER")
-            print("     Then log out and back in, or run: newgrp locker")
+            print(e)
         except Exception as e:
             print(f"Error saving Android serial: {e}")
-    
-    def setup(self):
-        """Interactive setup for configuring the service"""
-        print("=== Lock Service Setup ===")
-        print()
-        
-        # Check if already configured
-        existing_serial = self.get_android_serial()
-        if existing_serial:
-            print(f"Current configuration: {existing_serial}")
-            print()
-            response = input("Reconfigure? (y/N): ").strip().lower()
-            if response != 'y':
-                print("Setup cancelled.")
-                return
-        
-        # Get connected devices
-        devices = utils.get_connected_devices()
-        
-        if not devices:
-            print("No Android devices found.")
-            print()
-            response = input("Enter device serial manually? (y/N): ").strip().lower()
-            if response == 'y':
-                serial = input("Enter Android device serial: ").strip()
-                if serial:
-                    self.save_android_serial(serial)
-                    print(f"Android serial configured: {serial}")
-            else:
-                print("Setup cancelled.")
-            return
-        
-        # Show devices
-        print("Connected Android devices:")
-        print("-" * 50)
-        for i, (serial, model) in enumerate(devices, 1):
-            print(f"  {i}. {serial} ({model})")
-        print("-" * 50)
-        print()
-        
-        if len(devices) == 1:
-            response = input(f"Use device {devices[0][0]}? (Y/n): ").strip().lower()
-            if response != 'n':
-                self.save_android_serial(devices[0][0])
-                print(f"Android serial configured: {devices[0][0]}")
-        else:
-            try:
-                choice = input(f"Select device (1-{len(devices)}) or enter serial: ").strip()
-                try:
-                    idx = int(choice) - 1
-                    if 0 <= idx < len(devices):
-                        self.save_android_serial(devices[idx][0])
-                        print(f"Android serial configured: {devices[idx][0]}")
-                    else:
-                        print("Invalid selection.")
-                except ValueError:
-                    # User entered serial directly
-                    if choice:
-                        self.save_android_serial(choice)
-                        print(f"Android serial configured: {choice}")
-            except KeyboardInterrupt:
-                print("\nSetup cancelled.")
     
     def emergency_unlock(self):
         """Emergency unlock - manually unlock system without device"""
@@ -629,7 +528,6 @@ def main():
                                 help='Mode: permissive (no locking) or enforcing (lock when device disconnected)')
     
     # Utility commands
-    subparsers.add_parser('setup', help='Interactive setup for configuring the service')
     logs_parser = subparsers.add_parser('logs', help='Show service logs')
     logs_parser.add_argument('-n', '--lines', type=int, default=50,
                            help='Number of log lines to show')
@@ -656,8 +554,6 @@ def main():
         cli.remove_service(args.service)
     elif args.command == 'set-mode':
         cli.set_mode(getattr(args, 'mode', None))
-    elif args.command == 'setup':
-        cli.setup()
     elif args.command == 'logs':
         cli.logs(args.lines, args.follow)
 

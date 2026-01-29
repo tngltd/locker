@@ -5,6 +5,7 @@ A security service for Ubuntu systems to lock down devices when the configured A
 """
 
 import os
+import socket
 import time
 import signal
 import logging
@@ -15,6 +16,26 @@ from typing import Optional
 import argparse
 from locker import utils
 from locker import config
+
+
+def _notify_systemd_ready() -> bool:
+    """Notify systemd that the service is ready (for Type=notify). Returns True if notified."""
+    sock_path = os.environ.get('NOTIFY_SOCKET')
+    if not sock_path:
+        return False
+    # Abstract socket: @path -> bytes with leading null for AF_UNIX
+    if sock_path.startswith('@'):
+        addr = b'\0' + sock_path[1:].encode('utf-8')
+    elif sock_path.startswith('/'):
+        addr = sock_path
+    else:
+        return False
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as sock:
+            sock.sendto(b'READY=1\n', addr)
+        return True
+    except (OSError, ValueError):
+        return False
 
 
 class LockService:
@@ -47,7 +68,7 @@ class LockService:
         if android_serial:
             self.logger.info(f"Lock Service initialized. Configured Android serial: {android_serial}")
         else:
-            self.logger.warning("Lock Service initialized. No Android device configured - run \"locker setup\" first")
+            self.logger.warning("Lock Service initialized. No Android device configured - run \"locker set-android-serial\" first")
     
     
     def setup_logging(self):
@@ -243,6 +264,9 @@ class LockService:
         
         # Log configuration on startup
         self.log_config()
+        
+        # Notify systemd we are ready (when Type=notify)
+        _notify_systemd_ready()
         
         while self.running:
             try:

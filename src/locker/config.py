@@ -133,12 +133,14 @@ def validate_config(config: Dict):
         raise ValueError("Invalid \"services\" format: must be a list")
 
 
-def save_config(config: Dict, config_path: str):
+def save_config(config: Dict, config_path: str, suggested_sudo_cmd: Optional[str] = None):
     """Save configuration to file
     
     Args:
         config: Configuration dictionary to save.
         config_path: Path where the configuration should be saved.
+        suggested_sudo_cmd: Optional command to suggest when permission is denied
+            (e.g. "sudo locker set-android-serial" or "sudo locker add-service ssh").
     
     Raises:
         OSError: If the file cannot be written.
@@ -151,10 +153,18 @@ def save_config(config: Dict, config_path: str):
             json.dump(config, f, indent=2)
         os.chmod(config_path, 0o644)
     except PermissionError:
-        raise PermissionError(
+        msg_parts = [
             f"Permission denied: Cannot write to {config_path}. "
-            f"This file requires root permissions. Try running with sudo."
-        )
+            "This file requires root permissions.",
+            "",
+            "To write configuration, you need write permissions to /etc/locker/config.json",
+            "Options:",
+        ]
+        if suggested_sudo_cmd:
+            msg_parts.append(f"  1. Run with sudo: {suggested_sudo_cmd}")
+        else:
+            msg_parts.append("  1. Run your command with sudo")
+        raise PermissionError("\n".join(msg_parts))
     except OSError as e:
         raise OSError(f"Failed to save configuration to {config_path}: {e}")
 
