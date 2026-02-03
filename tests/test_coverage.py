@@ -1631,20 +1631,17 @@ class TestMainFunctions(unittest.TestCase):
         mock_run.assert_called_once()
     
     @patch.object(LockService, 'run')
+    @patch('locker.service.daemon')
     @skip_if_macos("Test requires daemon module which may not be available")
-    def test_service_main_with_daemon(self, mock_run):
+    def test_service_main_with_daemon(self, mock_daemon_module, mock_run):
         """Test service main() with --daemon flag"""
-        # Mock daemon module before importing
-        import sys
-        mock_daemon_module = MagicMock()
-        sys.modules['daemon'] = mock_daemon_module
+        mock_daemon_module.DaemonContext.return_value.__enter__ = Mock()
+        mock_daemon_module.DaemonContext.return_value.__exit__ = Mock(return_value=False)
         
         with patch('sys.argv', ['lockerd', '--config', self.config_path, '--daemon']):
-            with patch('daemon.DaemonContext') as mock_daemon:
-                mock_daemon.return_value.__enter__ = Mock()
-                mock_daemon.return_value.__exit__ = Mock(return_value=False)
-                main()
+            main()
         
+        mock_daemon_module.DaemonContext.assert_called_once()
         mock_run.assert_called_once()
     
     def test_cli_main_no_command(self):
