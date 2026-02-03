@@ -16,17 +16,12 @@ if [ ! -f "$CONFIG_FILE" ]; then
     PACKAGE_CONFIG="/usr/share/locker/config.json"
     if [ -f "$PACKAGE_CONFIG" ]; then
         cp "$PACKAGE_CONFIG" "$CONFIG_FILE"
-        chmod 664 "$CONFIG_FILE"  # Allow group write
-        chown root:locker "$CONFIG_FILE"
+        chmod 644 "$CONFIG_FILE"
         echo "Default configuration file copied from package template."
     else
         echo "Error: Package config template not found at $PACKAGE_CONFIG"
         exit 1
     fi
-else
-    # Ensure existing config file has proper permissions
-    chmod 664 "$CONFIG_FILE"  # Allow group write
-    chown root:locker "$CONFIG_FILE"
 fi
 
 # Check lockerd executable exists; if not, report an error to diagnose packaging/build issue
@@ -130,12 +125,6 @@ else
     echo "  - Directly: lockerd"
 fi
 echo "Next steps:"
-if [ -n "$INSTALL_USER" ] && id "$INSTALL_USER" > /dev/null 2>&1; then
-    echo "  Note: User $INSTALL_USER has been added to the 'locker' group."
-    echo "        You can run locker commands without sudo after logging out and back in,"
-    echo "        or by running: newgrp locker"
-    echo ""
-fi
 echo "  1. Run 'locker set-android-serial' to configure an Android device"
 echo "     (or 'locker list-devices' to see connected devices first)"
 echo "  2. Run 'locker add-service <service>' to configure services to manage"

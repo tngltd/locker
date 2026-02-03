@@ -24,18 +24,6 @@ override_dh_auto_install:
 		cp -r debian/locker/usr/lib/python3.*/dist-packages/locker* debian/locker/usr/lib/python3/dist-packages/ 2>/dev/null || true; \
 	fi
 	
-	# Ensure entry point is installed to /usr/bin (fail loudly if missing)
-	@if [ ! -f debian/locker/usr/bin/locker ]; then \
-		echo "ERROR: Expected entry point debian/locker/usr/bin/locker not found! dh_python3 failed to install it."; \
-		exit 1; \
-	fi
-	@if [ ! -f debian/locker/usr/bin/lockerd ] && [ -d debian/locker/usr/lib/python3.*/dist-packages ]; then \
-		mkdir -p debian/locker/usr/bin; \
-		echo '#!/usr/bin/env python3' > debian/locker/usr/bin/lockerd; \
-		echo 'from locker.service import main; main()' >> debian/locker/usr/bin/lockerd; \
-		chmod 755 debian/locker/usr/bin/lockerd; \
-	fi
-	
 	# Install config template to /usr/share/locker/ (for reference and postinst to copy from)
 	install -d $(CURDIR)/debian/locker/usr/share/locker
 	if [ -f $(CURDIR)/config/config.json ]; then \
