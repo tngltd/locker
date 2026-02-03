@@ -106,9 +106,21 @@ def get_connected_devices(logger: Optional[logging.Logger] = None) -> List[tuple
     devices = []
     seen_serials = set()
 
-    context = pyudev.Context()
+    try:
+        context = pyudev.Context()
+    except Exception as e:
+        if logger:
+            logger.warning(f"Failed to create pyudev context: {e}")
+        return []
 
-    for device in context.list_devices(subsystem='usb'):
+    try:
+        device_list = context.list_devices(subsystem='usb')
+    except Exception as e:
+        if logger:
+            logger.warning(f"Failed to list USB devices: {e}")
+        return []
+
+    for device in device_list:
         interfaces = device.get('ID_USB_INTERFACES', '')
         vendor_id = device.get('ID_VENDOR_ID', '').lower()
         serial = device.get('ID_SERIAL_SHORT') or device.get('ID_SERIAL')

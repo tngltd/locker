@@ -137,9 +137,9 @@ class LockCLI:
         
         # Save to config
         try:
-            loaded_config = config.load_config(self.config_path)
+            loaded_config = self.load_config()
             loaded_config['android_serial'] = serial
-            config.save_config(loaded_config, self.config_path, suggested_sudo_cmd="sudo locker set-android-serial")
+            self.save_config(loaded_config, suggested_sudo_cmd="sudo locker set-android-serial")
             print()
             print(f"Android serial configured: {serial}")
         except PermissionError as e:
@@ -156,7 +156,7 @@ class LockCLI:
         print()
         
         try:
-            loaded_config = config.load_config(self.config_path)
+            loaded_config = self.load_config()
             if 'services' not in loaded_config:
                 loaded_config['services'] = []
             elif not isinstance(loaded_config['services'], list):
@@ -173,7 +173,7 @@ class LockCLI:
                 services_list.append(service_name)
                 loaded_config['services'] = services_list
                 try:
-                    config.save_config(loaded_config, self.config_path, suggested_sudo_cmd=f"sudo locker add-service {service_name}")
+                    self.save_config(loaded_config, suggested_sudo_cmd=f"sudo locker add-service {service_name}")
                     print(f"Service \"{service_name}\" added. It will be started when device connects and stopped when device disconnects.")
                 except PermissionError as e:
                     print(e)
@@ -191,7 +191,7 @@ class LockCLI:
         print()
         
         try:
-            loaded_config = config.load_config(self.config_path)
+            loaded_config = self.load_config()
             if 'services' not in loaded_config:
                 loaded_config['services'] = []
             elif not isinstance(loaded_config['services'], list):
@@ -208,7 +208,7 @@ class LockCLI:
                 services_list.remove(service_name)
                 loaded_config['services'] = services_list
                 try:
-                    config.save_config(loaded_config, self.config_path, suggested_sudo_cmd=f"sudo locker remove-service {service_name}")
+                    self.save_config(loaded_config, suggested_sudo_cmd=f"sudo locker remove-service {service_name}")
                     print(f"Service \"{service_name}\" removed. It will no longer be managed by the locker service.")
                 except PermissionError as e:
                     print(e)
@@ -226,7 +226,7 @@ class LockCLI:
         print()
         
         if not mode:
-            current_mode = config.load_config(self.config_path).get('mode', 'permissive')
+            current_mode = self.load_config().get('mode', 'permissive')
             print(f"Current mode: {current_mode}")
             print()
             print("Modes:")
@@ -245,7 +245,7 @@ class LockCLI:
             return
         
         try:
-            loaded_config = config.load_config(self.config_path)
+            loaded_config = self.load_config()
             
             # In enforcing mode, require Android serial to be configured
             if mode == 'enforcing':
@@ -257,7 +257,7 @@ class LockCLI:
             
             loaded_config['mode'] = mode
             try:
-                config.save_config(loaded_config, self.config_path, suggested_sudo_cmd=f"sudo locker set-mode {mode}")
+                self.save_config(loaded_config, suggested_sudo_cmd=f"sudo locker set-mode {mode}")
                 print(f"Mode set to: {mode}")
                 
                 if mode == 'enforcing':
@@ -275,7 +275,7 @@ class LockCLI:
     def logs(self, lines: int = 50, follow: bool = False):
         """Show service logs"""
         try:
-            loaded_config = config.load_config(self.config_path)
+            loaded_config = self.load_config()
             log_file = loaded_config['service'].get('log_file', '/var/log/locker.log')
         except:
             log_file = "/var/log/locker.log"
@@ -413,9 +413,9 @@ class LockCLI:
     def save_android_serial(self, serial: str):
         """Save Android device serial to config"""
         try:
-            loaded_config = config.load_config(self.config_path)
+            loaded_config = self.load_config()
             loaded_config['android_serial'] = serial
-            config.save_config(loaded_config, self.config_path, suggested_sudo_cmd="sudo locker set-android-serial")
+            self.save_config(loaded_config, suggested_sudo_cmd="sudo locker set-android-serial")
         except PermissionError as e:
             print(e)
         except Exception as e:
@@ -435,7 +435,7 @@ class LockCLI:
             return
         
         try:
-            loaded_config = config.load_config(self.config_path)
+            loaded_config = self.load_config()
             
             # Start configured services (only if not running)
             services = loaded_config.get('services', [])
@@ -484,7 +484,7 @@ class LockCLI:
         print()
         
         # System lock status (based on services)
-        loaded_config = config.load_config(self.config_path)
+        loaded_config = self.load_config()
         services = loaded_config.get('services', [])
         if services:
             print("Configured services:")

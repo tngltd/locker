@@ -70,7 +70,6 @@ class LockService:
         else:
             self.logger.warning("Lock Service initialized. No Android device configured - run \"locker set-android-serial\" first")
     
-    
     def setup_logging(self):
         """Setup logging configuration"""
         # Get log level from config
@@ -190,7 +189,6 @@ class LockService:
     
         self.logger.info(f"System unlocked successfully (mode: {mode_str})")
     
-    
     def is_configured_device_connected(self) -> bool:
         """Check if the configured Android device is connected"""
         android_serial = self.config['android_serial']
@@ -275,6 +273,7 @@ class LockService:
                 self.logger.info(f"Sleeping for {check_interval} seconds before next check")
                 time.sleep(check_interval)
             except KeyboardInterrupt:
+                self.running = False
                 break
             except Exception as e:
                 self.logger.error(f"Error in main loop: {e}")
