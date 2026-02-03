@@ -142,6 +142,9 @@ class LockCLI:
             self.save_config(loaded_config, suggested_sudo_cmd="sudo locker set-android-serial")
             print()
             print(f"Android serial configured: {serial}")
+        except PermissionError as e:
+            print(e)
+            return
         except Exception as e:
             print(f"Error saving configuration: {e}")
             return
@@ -172,6 +175,9 @@ class LockCLI:
                 try:
                     self.save_config(loaded_config, suggested_sudo_cmd=f"sudo locker add-service {service_name}")
                     print(f"Service \"{service_name}\" added. It will be started when device connects and stopped when device disconnects.")
+                except PermissionError as e:
+                    print(e)
+                    return
             else:
                 print(f"Service \"{service_name}\" is already in the services list.")
         except Exception as e:
@@ -202,6 +208,9 @@ class LockCLI:
                 try:
                     self.save_config(loaded_config, suggested_sudo_cmd=f"sudo locker remove-service {service_name}")
                     print(f"Service \"{service_name}\" removed. It will no longer be managed by the locker service.")
+                except PermissionError as e:
+                    print(e)
+                    return
             else:
                 print(f"Service \"{service_name}\" is not in the services list.")
         except Exception as e:
@@ -251,6 +260,9 @@ class LockCLI:
                     print()
                     print("WARNING: In enforcing mode, the system will lock if the configured")
                     print("         Android device is not connected.")
+            except PermissionError as e:
+                print(e)
+                return
         except Exception as e:
             print(f"Error setting mode: {e}")
     
@@ -398,6 +410,8 @@ class LockCLI:
             loaded_config = self.load_config()
             loaded_config['android_serial'] = serial
             self.save_config(loaded_config, suggested_sudo_cmd="sudo locker set-android-serial")
+        except PermissionError as e:
+            print(e)
         except Exception as e:
             print(f"Error saving Android serial: {e}")
     
