@@ -38,12 +38,17 @@ class TestLockCLI(unittest.TestCase):
         
         os.makedirs(self.config_dir, exist_ok=True)
         
-        # Create test config
+        # Create test config (full structure required by config.validate_config)
         test_config = {
             "service": {
                 "name": "locker",
-                "log_file": self.log_file
-            }
+                "log_file": self.log_file,
+                "log_level": "INFO"
+            },
+            "monitoring": {"check_interval_seconds": 5},
+            "mode": "permissive",
+            "android_serial": None,
+            "services": []
         }
         
         with open(self.config_path, 'w') as f:
@@ -68,16 +73,16 @@ class TestLockCLI(unittest.TestCase):
         shutil.rmtree(self.test_dir, ignore_errors=True)
     
     def test_get_android_serial_existing(self):
-        """Test getting existing Android serial"""
-        serial_file = os.path.join(self.config_dir, 'android_serial')
-        with open(serial_file, 'w') as f:
-            f.write("DEVICE123456")
-        
+        """Test getting existing Android serial from config"""
+        cfg = self.cli.load_config()
+        cfg['android_serial'] = "DEVICE123456"
+        self.cli.save_config(cfg)
         serial = self.cli.get_android_serial()
         self.assertEqual(serial, "DEVICE123456")
     
     def test_get_android_serial_not_found(self):
-        """Test getting Android serial when file doesn't exist"""
+        """Test getting Android serial when not configured (None in config)"""
+        # Config from setUp has android_serial: None
         serial = self.cli.get_android_serial()
         self.assertIsNone(serial)
     
@@ -90,8 +95,10 @@ class TestLockCLI(unittest.TestCase):
         result = self.cli.is_service_running()
         self.assertTrue(result)
     
-    def test_is_service_running_false(self):
-        """Test service running check when not running"""
+    @patch('subprocess.run')
+    def test_is_service_running_false(self, mock_subprocess):
+        """Test service running check when not running (no PID file, systemctl says inactive)"""
+        mock_subprocess.return_value = Mock(returncode=3, stdout='inactive')
         result = self.cli.is_service_running()
         self.assertFalse(result)
     
@@ -167,11 +174,11 @@ class TestLockCLI(unittest.TestCase):
                     self.assertIn("DEVICE123", status_text)
                     self.assertIn("CONNECTED", status_text)
     
+    @unittest.skip("setup command was removed from CLI; use set-android-serial instead")
     @patch('builtins.input')
     def test_setup_new_config(self, mock_input):
-        """Test setup with new configuration - select device from list"""
-        mock_input.side_effect = ["1", "n"]  # Select first device, don't reconfigure
-        
+        """Test setup with new configuration - select device from list (setup removed)"""
+        mock_input.side_effect = ["1", "n"]
         with patch('locker.utils.get_connected_devices', return_value=[("DEVICE123", "Test Device")]):
             with patch.object(self.cli, 'save_android_serial') as mock_save:
                 self.cli.setup()
@@ -186,7 +193,8 @@ class TestLockCLI(unittest.TestCase):
         
         with patch('subprocess.run') as mock_subprocess:
             mock_subprocess.return_value = Mock(returncode=0)
-            with patch.object(self.cli, 'load_config', return_value={'network': {}}):
+            # emergency_unlock calls config.load_config, not self.cli.load_config
+            with patch('locker.cli.config.load_config', return_value={'services': []}):
                 output = []
                 def mock_print(*args, **kwargs):
                     output.append(' '.join(str(a) for a in args))
@@ -213,7 +221,8 @@ class TestLockCLI(unittest.TestCase):
         self.assertIn("Cancelled", output_text)
     
     def test_logs_file_not_found(self):
-        """Test logs command when log file doesn't exist"""
+        """Test logs command when log file doesn't exist (config points to missing file)"""
+        # setUp config has log_file = self.log_file (temp path); ensure it doesn't exist
         output = []
         def mock_print(*args, **kwargs):
             output.append(' '.join(str(a) for a in args))
@@ -238,21 +247,19 @@ class TestLockCLI(unittest.TestCase):
         # Verify subprocess was called
         mock_subprocess.assert_called()
     
-    def test_load_config_success(self):
+    def testload_config_success(self):
         """Test loading configuration"""
         config = self.cli.load_config()
         self.assertIsInstance(config, dict)
         self.assertIn('service', config)
     
-    def test_load_config_not_found(self):
+    def testload_config_not_found(self):
         """Test loading configuration when file doesn't exist"""
         self.cli.config_path = "/nonexistent/path/config.json"
         
-        with patch('sys.exit'):
-            try:
-                config = self.cli.load_config()
-            except SystemExit:
-                pass
+        with self.assertRaises(FileNotFoundError) as context:
+            self.cli.load_config()
+        self.assertIn("Configuration file not found", str(context.exception))
 
 
 class TestLockCLIEdgeCases(unittest.TestCase):
@@ -271,8 +278,13 @@ class TestLockCLIEdgeCases(unittest.TestCase):
         test_config = {
             "service": {
                 "name": "locker",
-                "log_file": self.log_file
-            }
+                "log_file": self.log_file,
+                "log_level": "INFO"
+            },
+            "monitoring": {"check_interval_seconds": 5},
+            "mode": "permissive",
+            "android_serial": None,
+            "services": []
         }
         
         with open(self.config_path, 'w') as f:
@@ -285,7 +297,6 @@ class TestLockCLIEdgeCases(unittest.TestCase):
     
     def tearDown(self):
         """Clean up test fixtures"""
-        # Stop the input patcher if it was started
         if hasattr(self, 'input_patcher'):
             self.input_patcher.stop()
         shutil.rmtree(self.test_dir, ignore_errors=True)
@@ -350,19 +361,16 @@ class TestLockCLIEdgeCases(unittest.TestCase):
                 mock_stop.assert_called_once()
                 mock_start.assert_called_once()
 
+    @unittest.skip("setup command was removed from CLI; use set-android-serial instead")
     @patch('builtins.input')
     def test_setup_reconfigure_declined(self, mock_input):
-        """Test setup when user declines reconfigure"""
+        """Test setup when user declines reconfigure (setup removed)"""
         serial_file = os.path.join(self.config_dir, 'android_serial')
         with open(serial_file, 'w') as f:
             f.write('EXISTING_DEVICE')
-        
         mock_input.return_value = 'n'
-        
         with patch('locker.utils.get_connected_devices', return_value=[("NEW_DEVICE", "New Device")]):
             self.cli.setup()
-        
-        # Should not have changed the serial
         with open(serial_file, 'r') as f:
             self.assertEqual(f.read().strip(), 'EXISTING_DEVICE')
 
@@ -375,19 +383,18 @@ class TestLockCLIEdgeCases(unittest.TestCase):
         
         output = []
         with patch('builtins.print', side_effect=lambda *a, **kw: output.append(' '.join(str(x) for x in a))):
-            with patch.object(self.cli, 'load_config', return_value={'services': ['ssh']}):
+            with patch('locker.cli.config.load_config', return_value={'services': ['ssh']}):
                 self.cli.emergency_unlock()
         
         self.assertTrue(any('Error' in o for o in output))
 
-    def test_logs_load_config_exception(self):
-        """Test logs when load_config raises exception"""
-        self.cli.config_path = '/nonexistent/config.json'
-        
+    def test_logsload_config_exception(self):
+        """Test logs when config.load_config raises - falls back to default log path then 'No log file found'"""
         output = []
         with patch('builtins.print', side_effect=lambda *a, **kw: output.append(' '.join(str(x) for x in a))):
-            self.cli.logs()
-        
+            with patch('locker.cli.config.load_config', side_effect=FileNotFoundError("Config not found")):
+                with patch('os.path.exists', return_value=False):  # default log path doesn't exist
+                    self.cli.logs()
         self.assertTrue(any('No log file' in o for o in output))
 
     @patch('subprocess.run')
@@ -397,13 +404,12 @@ class TestLockCLIEdgeCases(unittest.TestCase):
         with open(self.log_file, 'w') as f:
             f.write("Log line 1\nLog line 2\nLog line 3\n")
         
-        mock_subprocess.side_effect = FileNotFoundError()
+        mock_subprocess.side_effect = FileNotFoundError()  # tail not found
         
         output = []
         with patch('builtins.print', side_effect=lambda *a, **kw: output.append(' '.join(str(x) for x in a))):
-            with patch.object(self.cli, 'load_config', return_value={'service': {'log_file': self.log_file}}):
+            with patch('locker.cli.config.load_config', return_value={'service': {'log_file': self.log_file}}):
                 self.cli.logs(2)
-        
         self.assertTrue(any('Log line' in o for o in output))
 
 
