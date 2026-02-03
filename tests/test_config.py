@@ -23,6 +23,11 @@ sys.modules['pyudev'] = MagicMock()
 from locker.service import LockService
 
 
+def _find_config_file_use_given_path(path):
+    """Make find_config_file return the given path so tests load their config, not project config."""
+    return path
+
+
 class TestConfigurationSystem(unittest.TestCase):
     """Test cases for Configuration System"""
 
@@ -58,8 +63,9 @@ class TestConfigurationSystem(unittest.TestCase):
         import logging
         logging.disable(logging.NOTSET)
 
+    @patch('locker.config.find_config_file', side_effect=_find_config_file_use_given_path)
     @patch('signal.signal')
-    def test_load_valid_config(self, mock_signal):
+    def test_load_valid_config(self, mock_signal, mock_find_config):
         """Test loading valid configuration"""
         with open(self.config_path, 'w') as f:
             json.dump(self.valid_config, f)
@@ -74,8 +80,9 @@ class TestConfigurationSystem(unittest.TestCase):
         self.assertIsNone(service.config['android_serial'])
         self.assertEqual(service.config['services'], [])
 
+    @patch('locker.config.find_config_file', side_effect=_find_config_file_use_given_path)
     @patch('signal.signal')
-    def test_load_config_missing_service_section(self, mock_signal):
+    def test_load_config_missing_service_section(self, mock_signal, mock_find_config):
         """Test loading config with missing service section"""
         invalid_config = self.valid_config.copy()
         del invalid_config['service']
@@ -91,8 +98,9 @@ class TestConfigurationSystem(unittest.TestCase):
 
     # Removed test_load_config_missing_network_section - network section no longer exists
 
+    @patch('locker.config.find_config_file', side_effect=_find_config_file_use_given_path)
     @patch('signal.signal')
-    def test_load_config_missing_monitoring_section(self, mock_signal):
+    def test_load_config_missing_monitoring_section(self, mock_signal, mock_find_config):
         """Test loading config with missing monitoring section"""
         invalid_config = self.valid_config.copy()
         del invalid_config['monitoring']
@@ -106,8 +114,9 @@ class TestConfigurationSystem(unittest.TestCase):
         self.assertIn('monitoring', str(context.exception))
         self.assertIn('Missing required config section', str(context.exception))
 
+    @patch('locker.config.find_config_file', side_effect=_find_config_file_use_given_path)
     @patch('signal.signal')
-    def test_load_config_missing_log_level(self, mock_signal):
+    def test_load_config_missing_log_level(self, mock_signal, mock_find_config):
         """Test loading config with missing log_level"""
         invalid_config = self.valid_config.copy()
         del invalid_config['service']['log_level']
@@ -123,8 +132,9 @@ class TestConfigurationSystem(unittest.TestCase):
 
     # Removed test_load_config_missing_blocked_interfaces - blocked_interfaces no longer required
 
+    @patch('locker.config.find_config_file', side_effect=_find_config_file_use_given_path)
     @patch('signal.signal')
-    def test_load_config_missing_check_interval(self, mock_signal):
+    def test_load_config_missing_check_interval(self, mock_signal, mock_find_config):
         """Test loading config with missing check_interval_seconds"""
         invalid_config = self.valid_config.copy()
         del invalid_config['monitoring']['check_interval_seconds']
@@ -138,8 +148,9 @@ class TestConfigurationSystem(unittest.TestCase):
         self.assertIn('check_interval_seconds', str(context.exception))
         self.assertIn('Missing', str(context.exception))
 
+    @patch('locker.config.find_config_file', side_effect=_find_config_file_use_given_path)
     @patch('signal.signal')
-    def test_load_config_invalid_json(self, mock_signal):
+    def test_load_config_invalid_json(self, mock_signal, mock_find_config):
         """Test loading config with invalid JSON"""
         with open(self.config_path, 'w') as f:
             f.write("{ invalid json }")
