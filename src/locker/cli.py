@@ -180,8 +180,6 @@ class LockCLI:
                     return
             else:
                 print(f"Service \"{service_name}\" is already in the services list.")
-        except PermissionError as e:
-            print(e)
         except Exception as e:
             print(f"Error adding service: {e}")
     
