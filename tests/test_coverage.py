@@ -778,7 +778,6 @@ class TestCLICoverage(unittest.TestCase):
             saved_config = json.load(f)
         self.assertEqual(saved_config, config)
     
-    @skip_if_macos("Test checks run() when device not connected - stateless")
     def test_run_device_not_connected_not_locked(self):
         """Test run() locks when device not connected then exits on KeyboardInterrupt"""
         config = self.test_config.copy()
@@ -1092,7 +1091,6 @@ class TestCLICoverage(unittest.TestCase):
             self.cli.load_config()
         self.assertIn("Configuration file not found", str(context.exception))
     
-    @skip_if_macos("Test checks for is_locked attribute which doesn't exist in stateless implementation")
     def test_run_enforcing_mode_device_connected_on_startup(self):
         """Test run() in enforcing mode when device connected on startup (stateless: no is_locked)"""
         config = self.test_config.copy()
@@ -1116,7 +1114,6 @@ class TestCLICoverage(unittest.TestCase):
         # Should have exited cleanly (stateless: no is_locked)
         self.assertFalse(service.running)
     
-    @skip_if_macos("Test checks for is_locked attribute which doesn't exist in stateless implementation")
     def test_run_permissive_mode_configured(self):
         """Test run() in permissive mode when device is configured (stateless: no is_locked)"""
         config = self.test_config.copy()
@@ -1137,7 +1134,6 @@ class TestCLICoverage(unittest.TestCase):
         # Should have exited cleanly (stateless: no is_locked)
         self.assertFalse(service.running)
     
-    @skip_if_macos("Test for exception handling in run loop - complex to test reliably")
     def test_run_exception_in_loop_continues(self):
         """Test run() continues after exception in main loop"""
         # Configure device
@@ -1205,7 +1201,6 @@ class TestCLICoverage(unittest.TestCase):
         service.signal_handler(signal.SIGTERM, None)
         self.assertFalse(service.running)
     
-    @skip_if_macos("Test lock_system with empty services - stateless")
     def test_lock_system_no_policies(self):
         """Test lock_system with empty services list (no policies to lock)"""
         config = self.test_config.copy()
@@ -1217,7 +1212,6 @@ class TestCLICoverage(unittest.TestCase):
             service.lock_system(service.config['services'], True)
         # Stateless: completes without error
     
-    @skip_if_macos("Test unlock_system with empty services - stateless")
     def test_unlock_system_no_policies(self):
         """Test unlock_system with empty services list"""
         config = self.test_config.copy()
@@ -1228,7 +1222,6 @@ class TestCLICoverage(unittest.TestCase):
         with patch('subprocess.run'):
             service.unlock_system(service.config['services'], True)
     
-    @skip_if_macos("Test lock_system with empty services - stateless")
     def test_lock_system_empty_services_list(self):
         """Test lock_system with empty services list"""
         config = self.test_config.copy()
@@ -1239,7 +1232,6 @@ class TestCLICoverage(unittest.TestCase):
         with patch('subprocess.run'):
             service.lock_system(service.config['services'], True)
     
-    @skip_if_macos("Test unlock_system with empty services - stateless")
     def test_unlock_system_empty_services_list(self):
         """Test unlock_system with empty services list (stateless: no is_locked)"""
         config = self.test_config.copy()
@@ -1632,7 +1624,6 @@ class TestMainFunctions(unittest.TestCase):
     
     @patch.object(LockService, 'run')
     @patch('locker.service.daemon')
-    @skip_if_macos("Test requires daemon module which may not be available")
     def test_service_main_with_daemon(self, mock_daemon_module, mock_run):
         """Test service main() with --daemon flag"""
         mock_daemon_module.DaemonContext.return_value.__enter__ = Mock()

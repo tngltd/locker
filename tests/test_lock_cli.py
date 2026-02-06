@@ -174,18 +174,6 @@ class TestLockCLI(unittest.TestCase):
                     self.assertIn("DEVICE123", status_text)
                     self.assertIn("CONNECTED", status_text)
     
-    @unittest.skip("setup command was removed from CLI; use set-android-serial instead")
-    @patch('builtins.input')
-    def test_setup_new_config(self, mock_input):
-        """Test setup with new configuration - select device from list (setup removed)"""
-        mock_input.side_effect = ["1", "n"]
-        with patch('locker.utils.get_connected_devices', return_value=[("DEVICE123", "Test Device")]):
-            with patch.object(self.cli, 'save_android_serial') as mock_save:
-                self.cli.setup()
-                mock_save.assert_called_once_with("DEVICE123")
-    
-    
-    
     @patch('builtins.input')
     def test_emergency_unlock_success(self, mock_input):
         """Test emergency unlock - manual unlock without device"""
@@ -361,18 +349,6 @@ class TestLockCLIEdgeCases(unittest.TestCase):
                 mock_stop.assert_called_once()
                 mock_start.assert_called_once()
 
-    @unittest.skip("setup command was removed from CLI; use set-android-serial instead")
-    @patch('builtins.input')
-    def test_setup_reconfigure_declined(self, mock_input):
-        """Test setup when user declines reconfigure (setup removed)"""
-        serial_file = os.path.join(self.config_dir, 'android_serial')
-        with open(serial_file, 'w') as f:
-            f.write('EXISTING_DEVICE')
-        mock_input.return_value = 'n'
-        with patch('locker.utils.get_connected_devices', return_value=[("NEW_DEVICE", "New Device")]):
-            self.cli.setup()
-        with open(serial_file, 'r') as f:
-            self.assertEqual(f.read().strip(), 'EXISTING_DEVICE')
 
     @patch('builtins.input')
     @patch('subprocess.run')
