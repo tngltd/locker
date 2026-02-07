@@ -107,6 +107,13 @@ class LockService:
             file_handler.setLevel(logging.DEBUG)  # Verbose logging to file
             file_handler.setFormatter(formatter)
             self.logger.addHandler(file_handler)
+            
+            # Ensure log file is writable by CLI (non-root) users too
+            try:
+                os.chmod(log_file_path, 0o666)
+            except OSError:
+                pass  # Best effort; may fail if not owner
+            
             # Log successful file handler setup
             self.logger.info(f"Logging to file: {log_file_path}")
         except (OSError, PermissionError) as e:
@@ -149,10 +156,15 @@ class LockService:
         mode_str = "enforcing" if enforcing else "permissive"
         self.logger.info(f"Locking system (mode: {mode_str})...")
         
+        if not services:
+            self.logger.info("No services configured to lock")
+            return
+        
         for service in services:
             is_running = utils.is_service_running(service, logger=self.logger)
             
             if not is_running:
+                self.logger.info(f"Service {service} is already stopped - skipping")
                 continue
 
             self.logger.info(f"Service {service} is running - {'would be' if not enforcing else ''} stopping it ({mode_str})")
@@ -174,10 +186,15 @@ class LockService:
         mode_str = "enforcing" if enforcing else "permissive"
         self.logger.info(f"Unlocking system (mode: {mode_str})...")
         
+        if not services:
+            self.logger.info("No services configured to unlock")
+            return
+        
         for service in services:
             is_running = utils.is_service_running(service, logger=self.logger)
             
             if is_running:
+                self.logger.info(f"Service {service} is already running - skipping")
                 continue
 
             self.logger.info(f"Service {service} is not running - {'would be' if not enforcing else ''} starting it ({mode_str})")
@@ -331,8 +348,15 @@ def main():
         service.log_config()
         service.run_once()
     elif args.daemon:
-        # Run as daemon
-        with daemon.DaemonContext():
+        # Run as daemon - preserve log file handlers so logging continues
+        files_to_preserve = []
+        for handler in service.logger.handlers:
+            if hasattr(handler, 'stream') and hasattr(handler.stream, 'fileno'):
+                try:
+                    files_to_preserve.append(handler.stream)
+                except Exception:
+                    pass
+        with daemon.DaemonContext(files_preserve=files_to_preserve):
             service.run()
     else:
         service.run()

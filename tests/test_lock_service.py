@@ -355,6 +355,116 @@ class TestLockService(unittest.TestCase):
         with self.assertRaises(Exception):
             service.unlock_system(service.config['services'], True)
     
+    def test_lock_system_logs_skipped_services(self):
+        """Test that lock_system logs when services are already stopped"""
+        # Update config to use INFO log level and our test log file
+        with open(self.config_path, 'r') as f:
+            config = json.load(f)
+        config['service']['log_level'] = 'INFO'
+        config['service']['log_file'] = self.log_file
+        config['services'] = ['ssh', 'nginx']
+        with open(self.config_path, 'w') as f:
+            json.dump(config, f)
+        
+        # Create log file directory
+        os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
+        
+        service = LockService(self.config_path, config_dir=self.config_dir)
+        
+        # Mock is_service_running to return False (services already stopped)
+        with patch('locker.utils.is_service_running', return_value=False):
+            service.lock_system(service.config['services'], True)
+        
+        # Verify log file was created and contains skip messages
+        self.assertTrue(os.path.exists(self.log_file))
+        with open(self.log_file, 'r') as f:
+            log_content = f.read()
+        
+        # Should log that services are already stopped
+        self.assertIn('already stopped', log_content.lower())
+        self.assertIn('ssh', log_content)
+        self.assertIn('nginx', log_content)
+    
+    def test_unlock_system_logs_skipped_services(self):
+        """Test that unlock_system logs when services are already running"""
+        # Update config to use INFO log level and our test log file
+        with open(self.config_path, 'r') as f:
+            config = json.load(f)
+        config['service']['log_level'] = 'INFO'
+        config['service']['log_file'] = self.log_file
+        config['services'] = ['ssh', 'nginx']
+        with open(self.config_path, 'w') as f:
+            json.dump(config, f)
+        
+        # Create log file directory
+        os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
+        
+        service = LockService(self.config_path, config_dir=self.config_dir)
+        
+        # Mock is_service_running to return True (services already running)
+        with patch('locker.utils.is_service_running', return_value=True):
+            service.unlock_system(service.config['services'], True)
+        
+        # Verify log file was created and contains skip messages
+        self.assertTrue(os.path.exists(self.log_file))
+        with open(self.log_file, 'r') as f:
+            log_content = f.read()
+        
+        # Should log that services are already running
+        self.assertIn('already running', log_content.lower())
+        self.assertIn('ssh', log_content)
+        self.assertIn('nginx', log_content)
+    
+    def test_lock_system_logs_all_operations(self):
+        """Test that lock_system logs all operations including when no services configured"""
+        # Update config to use INFO log level and our test log file
+        with open(self.config_path, 'r') as f:
+            config = json.load(f)
+        config['service']['log_level'] = 'INFO'
+        config['service']['log_file'] = self.log_file
+        config['services'] = []  # No services configured
+        with open(self.config_path, 'w') as f:
+            json.dump(config, f)
+        
+        # Create log file directory
+        os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
+        
+        service = LockService(self.config_path, config_dir=self.config_dir)
+        service.lock_system(service.config['services'], True)
+        
+        # Verify log file was created and contains appropriate message
+        self.assertTrue(os.path.exists(self.log_file))
+        with open(self.log_file, 'r') as f:
+            log_content = f.read()
+        
+        # Should log that no services are configured
+        self.assertIn('no services configured', log_content.lower())
+    
+    def test_unlock_system_logs_all_operations(self):
+        """Test that unlock_system logs all operations including when no services configured"""
+        # Update config to use INFO log level and our test log file
+        with open(self.config_path, 'r') as f:
+            config = json.load(f)
+        config['service']['log_level'] = 'INFO'
+        config['service']['log_file'] = self.log_file
+        config['services'] = []  # No services configured
+        with open(self.config_path, 'w') as f:
+            json.dump(config, f)
+        
+        # Create log file directory
+        os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
+        
+        service = LockService(self.config_path, config_dir=self.config_dir)
+        service.unlock_system(service.config['services'], True)
+        
+        # Verify log file was created and contains appropriate message
+        self.assertTrue(os.path.exists(self.log_file))
+        with open(self.log_file, 'r') as f:
+            log_content = f.read()
+        
+        # Should log that no services are configured
+        self.assertIn('no services configured', log_content.lower())
+    
     def test_signal_handler(self):
         """Test signal handling"""
         service = LockService(self.config_path, config_dir=self.config_dir)

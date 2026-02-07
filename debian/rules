@@ -56,6 +56,7 @@ override_dh_installdocs:
 	:
 
 override_dh_python3:
-	# Let dh_python3 handle the Python package installation
-	# It will use pyproject.toml to install the package with entry points
-	dh_python3
+	# pybuild already handles Python package installation via pyproject.toml
+	# dh_python3 is not needed since we're using pybuild with pyproject.toml
+	# Entry points are installed by pybuild during dh_auto_install
+	:

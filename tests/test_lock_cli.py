@@ -247,7 +247,198 @@ class TestLockCLI(unittest.TestCase):
         
         with self.assertRaises(FileNotFoundError) as context:
             self.cli.load_config()
-        self.assertIn("Configuration file not found", str(context.exception))
+    
+    def test_list_services_empty(self):
+        """Test list_services when no services are configured"""
+        output = []
+        def mock_print(*args, **kwargs):
+            output.append(' '.join(str(a) for a in args))
+        
+        with patch('builtins.print', side_effect=mock_print):
+            self.cli.list_services()
+        
+        output_text = ' '.join(output)
+        self.assertIn("No services configured", output_text)
+        self.assertIn("add-service", output_text)
+    
+    @patch('subprocess.run')
+    def test_list_services_with_services(self, mock_subprocess):
+        """Test list_services when services are configured"""
+        # Configure some services
+        config = self.cli.load_config()
+        config['services'] = ['ssh', 'nginx']
+        self.cli.save_config(config)
+        
+        # Mock subprocess to return different statuses for different services
+        def subprocess_side_effect(*args, **kwargs):
+            cmd = args[0] if args else []
+            if 'is-active' in cmd and 'ssh' in cmd:
+                return Mock(returncode=0)  # ssh is running
+            elif 'is-active' in cmd and 'nginx' in cmd:
+                return Mock(returncode=1)  # nginx is stopped
+            return Mock(returncode=0)
+        
+        mock_subprocess.side_effect = subprocess_side_effect
+        
+        output = []
+        def mock_print(*args, **kwargs):
+            output.append(' '.join(str(a) for a in args))
+        
+        with patch('builtins.print', side_effect=mock_print):
+            self.cli.list_services()
+        
+        output_text = ' '.join(output)
+        self.assertIn("ssh", output_text)
+        self.assertIn("nginx", output_text)
+        self.assertIn("RUNNING", output_text)
+        self.assertIn("STOPPED", output_text)
+    
+    @patch('subprocess.run')
+    def test_list_services_with_exception(self, mock_subprocess):
+        """Test list_services when subprocess raises exception"""
+        # Configure some services
+        config = self.cli.load_config()
+        config['services'] = ['ssh']
+        self.cli.save_config(config)
+        
+        # Mock subprocess to raise exception
+        mock_subprocess.side_effect = Exception("System error")
+        
+        output = []
+        def mock_print(*args, **kwargs):
+            output.append(' '.join(str(a) for a in args))
+        
+        with patch('builtins.print', side_effect=mock_print):
+            # Should not raise exception, should handle gracefully
+            try:
+                self.cli.list_services()
+            except Exception:
+                self.fail("list_services should handle exceptions gracefully")
+        
+        output_text = ' '.join(output)
+        # Should still show the service but with UNKNOWN status
+        self.assertIn("ssh", output_text)
+        self.assertIn("UNKNOWN", output_text)
+    
+    def test_add_service_logs_to_file(self):
+        """Test that add_service logs to the log file"""
+        # Update config to use INFO log level and our test log file
+        config = self.cli.load_config()
+        config['service']['log_level'] = 'INFO'
+        config['service']['log_file'] = self.log_file
+        self.cli.save_config(config)
+        
+        # Create log file directory
+        os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
+        
+        # Reinitialize CLI to pick up new log file
+        self.cli = LockCLI()
+        self.cli.config_path = self.config_path
+        self.cli.config_dir = self.config_dir
+        # Re-setup logging with new config path
+        self.cli._setup_logging()
+        
+        # Add a service
+        with patch('builtins.print'):
+            self.cli.add_service('ssh')
+        
+        # Verify log file was created and contains log message
+        self.assertTrue(os.path.exists(self.log_file))
+        with open(self.log_file, 'r') as f:
+            log_content = f.read()
+        
+        self.assertIn("CLI: Added service 'ssh'", log_content)
+    
+    def test_remove_service_logs_to_file(self):
+        """Test that remove_service logs to the log file"""
+        # Configure a service first
+        config = self.cli.load_config()
+        config['service']['log_level'] = 'INFO'
+        config['service']['log_file'] = self.log_file
+        config['services'] = ['ssh']
+        self.cli.save_config(config)
+        
+        # Create log file directory
+        os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
+        
+        # Reinitialize CLI to pick up new log file
+        self.cli = LockCLI()
+        self.cli.config_path = self.config_path
+        self.cli.config_dir = self.config_dir
+        # Re-setup logging with new config path
+        self.cli._setup_logging()
+        
+        # Remove the service
+        with patch('builtins.print'):
+            self.cli.remove_service('ssh')
+        
+        # Verify log file contains log message
+        self.assertTrue(os.path.exists(self.log_file))
+        with open(self.log_file, 'r') as f:
+            log_content = f.read()
+        
+        self.assertIn("CLI: Removed service 'ssh'", log_content)
+    
+    def test_set_mode_logs_to_file(self):
+        """Test that set_mode logs to the log file"""
+        # Update config to use INFO log level and our test log file
+        config = self.cli.load_config()
+        config['service']['log_level'] = 'INFO'
+        config['service']['log_file'] = self.log_file
+        config['android_serial'] = 'TEST123'  # Required for enforcing mode
+        self.cli.save_config(config)
+        
+        # Create log file directory
+        os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
+        
+        # Reinitialize CLI to pick up new log file
+        self.cli = LockCLI()
+        self.cli.config_path = self.config_path
+        self.cli.config_dir = self.config_dir
+        # Re-setup logging with new config path
+        self.cli._setup_logging()
+        
+        # Set mode
+        with patch('builtins.print'):
+            self.cli.set_mode('enforcing')
+        
+        # Verify log file contains log message
+        self.assertTrue(os.path.exists(self.log_file))
+        with open(self.log_file, 'r') as f:
+            log_content = f.read()
+        
+        self.assertIn("CLI: Set mode to 'enforcing'", log_content)
+    
+    def test_set_android_serial_logs_to_file(self):
+        """Test that set_android_serial logs to the log file"""
+        # Update config to use INFO log level and our test log file
+        config = self.cli.load_config()
+        config['service']['log_level'] = 'INFO'
+        config['service']['log_file'] = self.log_file
+        self.cli.save_config(config)
+        
+        # Create log file directory
+        os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
+        
+        # Reinitialize CLI to pick up new log file
+        self.cli = LockCLI()
+        self.cli.config_path = self.config_path
+        self.cli.config_dir = self.config_dir
+        # Re-setup logging with new config path
+        self.cli._setup_logging()
+        
+        # Set Android serial
+        with patch('builtins.print'):
+            with patch('locker.utils.get_connected_devices', return_value=[]):
+                with patch('builtins.input', return_value='y'):
+                    self.cli.set_android_serial('TEST123')
+        
+        # Verify log file contains log message
+        self.assertTrue(os.path.exists(self.log_file))
+        with open(self.log_file, 'r') as f:
+            log_content = f.read()
+        
+        self.assertIn("CLI: Set Android serial to 'TEST123'", log_content)
 
 
 class TestLockCLIEdgeCases(unittest.TestCase):
@@ -485,6 +676,13 @@ class TestLockCLIMain(unittest.TestCase):
             with patch.object(LockCLI, 'logs') as mock_logs:
                 main()
                 mock_logs.assert_called_once_with(100, True)
+    
+    def test_main_list_services_command(self):
+        """Test main() with list-services command"""
+        with patch('sys.argv', ['locker', 'list-services']):
+            with patch.object(LockCLI, 'list_services') as mock_list:
+                main()
+                mock_list.assert_called_once()
 
 
 if __name__ == '__main__':

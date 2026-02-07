@@ -89,14 +89,15 @@ if command -v systemctl >/dev/null 2>&1; then
 fi
 
 # Ensure log directory exists and create log file with proper permissions
+# Permissions 666 so both the root service (lockerd) and non-root CLI (locker) can write
 LOG_FILE="/var/log/locker.log"
 if [ ! -f "$LOG_FILE" ]; then
     echo "Creating log file at $LOG_FILE"
     touch "$LOG_FILE"
-    chmod 644 "$LOG_FILE"
-    chown root:root "$LOG_FILE"
-    echo "Log file created."
 fi
+chmod 666 "$LOG_FILE"
+chown root:root "$LOG_FILE"
+echo "Log file created with write access for CLI and service."
 
 # Create log rotation configuration
 cat > /etc/logrotate.d/locker << 'EOF'
@@ -107,7 +108,7 @@ cat > /etc/logrotate.d/locker << 'EOF'
     compress
     delaycompress
     notifempty
-    create 644 root root
+    create 666 root root
     postrotate
         systemctl reload locker > /dev/null 2>&1 || true
     endscript
