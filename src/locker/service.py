@@ -5,6 +5,7 @@ A security service for Ubuntu systems to lock down devices when the configured A
 """
 
 import os
+import json
 import socket
 import time
 import signal
@@ -16,6 +17,11 @@ from typing import Optional
 import argparse
 from locker import utils
 from locker import config
+
+# Connected Android serials file - when this file exists and contains a matching
+# serial, the service treats it as if a real device is connected. Useful for
+# testing/demos without physical hardware.
+CONNECTED_SERIALS_FILE = "connect_android_serials.json"
 
 
 def _notify_systemd_ready() -> bool:
@@ -206,22 +212,73 @@ class LockService:
     
         self.logger.info(f"System unlocked successfully (mode: {mode_str})")
     
+    def _get_connected_serials_path(self) -> str:
+        """Get the path to the connected serials file (lives alongside config.json)"""
+        return os.path.join(self.config_dir, CONNECTED_SERIALS_FILE)
+    
+    def _check_connected_serials_file(self, android_serial: str) -> bool:
+        """Check if the connected serials file exists and matches the configured serial.
+        
+        The file /etc/locker/connect_android_serials.json allows simulating a
+        connected Android device for testing without physical hardware. The file must:
+          1. Exist in the config directory (/etc/locker/connect_android_serials.json)
+          2. Be valid JSON
+          3. Contain an 'android_serial' key
+          4. Have a value that matches the configured android_serial
+        
+        Args:
+            android_serial: The configured serial to match against.
+            
+        Returns:
+            True if file exists and serial matches, False otherwise.
+        """
+        mock_path = self._get_connected_serials_path()
+        
+        try:
+            if not os.path.exists(mock_path):
+                return False
+            
+            with open(mock_path, 'r') as f:
+                mock_data = json.load(f)
+            
+            mock_serial = mock_data.get('android_serial')
+            if mock_serial and mock_serial == android_serial:
+                self.logger.info(f"Mock device file found at {mock_path} - serial matches: {mock_serial}")
+                return True
+            else:
+                self.logger.debug(f"Mock device file found but serial mismatch: "
+                                  f"mock='{mock_serial}' vs configured='{android_serial}'")
+                return False
+        except (json.JSONDecodeError, OSError, TypeError, KeyError) as e:
+            self.logger.debug(f"Mock device file check failed: {e}")
+            return False
+    
     def is_configured_device_connected(self) -> bool:
-        """Check if the configured Android device is connected"""
+        """Check if the configured Android device is connected.
+        
+        First checks for a real USB-connected device. If not found, falls back
+        to checking connect_android_serials.json for testing/development.
+        """
         android_serial = self.config['android_serial']
         if not android_serial:
             return False
         
+        # Check real USB devices first
         devices = utils.get_connected_devices(logger=self.logger)
         connected_serials = [d[0] for d in devices]
         is_connected = android_serial in connected_serials
         
         if is_connected:
-            self.logger.info(f"Android device {android_serial} is connected")
-        else:
-            self.logger.info(f"Android device {android_serial} is NOT connected")
+            self.logger.info(f"Android device {android_serial} is connected (USB)")
+            return True
         
-        return is_connected
+        # Fallback: check connected serials file
+        if self._check_connected_serials_file(android_serial):
+            self.logger.info(f"Android device {android_serial} is connected (via {CONNECTED_SERIALS_FILE})")
+            return True
+        
+        self.logger.info(f"Android device {android_serial} is NOT connected")
+        return False
     
     def signal_handler(self, signum, frame):
         """Handle shutdown signals"""
