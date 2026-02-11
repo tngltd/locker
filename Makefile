@@ -1,4 +1,4 @@
-.PHONY: help test demo build install clean
+.PHONY: help help-web test demo build install clean
 
 MOCK_SERIAL = mockup_data_118s9Zas
 SERIALS_FILE = /etc/locker/connect_android_serials.json
@@ -14,8 +14,17 @@ help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "    \033[96m%-14s\033[0m %s\n", $$1, $$2}'
 	@echo ""
-	@echo "  Most targets require root. Run with:  sudo make <target>"
+
+# ─── Serve HTML documentation via local web server ──────────────────
+help-web: ## Serve the HTML documentation on http://0.0.0.0:8888
 	@echo ""
+	@echo "  Serving documentation at:"
+	@printf "    \033[96mhttp://localhost:8888/documentation.html\033[0m\n"
+	@printf "    \033[96mhttp://$$(hostname -I | awk '{print $$1}'):8888/documentation.html\033[0m\n"
+	@echo ""
+	@echo "  Press Ctrl+C to stop."
+	@echo ""
+	@python3 -m http.server 8888 --directory docs
 
 # ─── Run unit tests ───────────────────────────────────────────────
 test: ## Run the full unit test suite
@@ -39,9 +48,6 @@ clean: ## Stop service, uninstall package, and remove build artifacts
 	@rm -f locker_1.0.0-1_all.deb
 	@rm -rf .pybuild debian/locker debian/.debhelper
 	@rm -f debian/debhelper-build-stamp debian/files debian/locker.substvars
-	@echo "Removing configuration files..."
-	@rm -f /etc/locker/config.json
-	@rm -f /etc/locker/connect_android_serials.json
 	@echo "Done."
 
 # ═══════════════════════════════════════════════════════════════════
@@ -51,31 +57,22 @@ RESET    := \033[0m
 BOLD     := \033[1m
 DIM      := \033[2m
 
-# Source colors
 TEAL     := \033[96m
-BLUE     := \033[94m
-
-# Level colors
 RED      := \033[91m
 BRED     := \033[1;91m
 YELLOW   := \033[93m
 GREEN    := \033[92m
-GRAY     := \033[90m
-
-# Backgrounds
-BG_TEAL  := \033[46m\033[30m
-BG_RED   := \033[41m\033[97m
-BG_GREEN := \033[42m\033[30m
-BG_BLUE  := \033[44m\033[97m
 
 # ═══════════════════════════════════════════════════════════════════
-#  End-to-end demo
-#  Must be run as root: sudo make demo
+#  End-to-end demo  —  run with:  make demo
 # ═══════════════════════════════════════════════════════════════════
+
+# Pause — wait for the user to press ENTER
 define PAUSE
 	@printf "\n$(DIM)  ─── Press ENTER to continue ───$(RESET) " && read _pause
 endef
 
+# Section header
 define HEADER
 	@echo ""
 	@printf "$(BOLD)$(TEAL)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)\n"
@@ -84,7 +81,16 @@ define HEADER
 	@echo ""
 endef
 
-demo: ## Run the interactive end-to-end demo (requires root)
+# Show a sudo command, ask for ENTER, then execute it.
+# Usage: $(call SUDO_CMD,<command to display and run>)
+define SUDO_CMD
+	@printf "\n  $(YELLOW)The following command requires elevated privileges:$(RESET)\n"
+	@printf "  $(BOLD)$(TEAL)$$ sudo $(1)$(RESET)\n"
+	@printf "  $(DIM)Press ENTER to authorize and run ───$(RESET) " && read _auth
+	@sudo $(1)
+endef
+
+demo: ## Run the interactive end-to-end demo
 	@echo ""
 	@printf "$(BOLD)$(TEAL)╔══════════════════════════════════════════════════════════════╗$(RESET)\n"
 	@printf "$(BOLD)$(TEAL)║                                                            ║$(RESET)\n"
@@ -96,6 +102,7 @@ demo: ## Run the interactive end-to-end demo (requires root)
 	@printf "$(BOLD)$(TEAL)╚══════════════════════════════════════════════════════════════╝$(RESET)\n"
 	@echo ""
 	@printf "  $(DIM)This demo will walk you through the complete Locker workflow.$(RESET)\n"
+	@printf "  $(DIM)Each step that requires sudo will ask for your approval.$(RESET)\n"
 	@printf "  $(DIM)Press ENTER at each pause to advance to the next step.$(RESET)\n"
 	$(PAUSE)
 
@@ -103,10 +110,23 @@ demo: ## Run the interactive end-to-end demo (requires root)
 	$(call HEADER,"Step 0 — Verifying the Locker service is running")
 	@printf "  $(DIM)Locker runs as a systemd service in the background,$(RESET)\n"
 	@printf "  $(DIM)continuously monitoring your Android device connection.$(RESET)\n"
-	@echo ""
-	@printf "  $(BLUE)$$ sudo systemctl is-active locker$(RESET)\n"
-	@systemctl is-active locker && printf "  $(GREEN)✓ Service is active.$(RESET)\n" || \
-		(printf "  $(YELLOW)⚠ Service not running — starting it...$(RESET)\n" && systemctl start locker && sleep 2 && printf "  $(GREEN)✓ Service started.$(RESET)\n")
+	@printf "  $(DIM)Let's check if it's alive.$(RESET)\n"
+	@printf "\n  $(YELLOW)The following command requires elevated privileges:$(RESET)\n"
+	@printf "  $(BOLD)$(TEAL)$$ sudo systemctl is-active locker$(RESET)\n"
+	@printf "  $(DIM)Press ENTER to authorize and run ───$(RESET) " && read _auth
+	@sudo systemctl is-active locker \
+		&& printf "  $(GREEN)✓ Service is active.$(RESET)\n" \
+		|| ( \
+			printf "  $(YELLOW)⚠ Service not running — attempting to start...$(RESET)\n" \
+			&& sudo systemctl start locker \
+			&& sleep 2 \
+			&& printf "  $(GREEN)✓ Service started.$(RESET)\n" \
+		) || ( \
+			printf "  $(RED)✗ Failed to start the locker service.$(RESET)\n" \
+			&& printf "  $(RED)  Run: sudo systemctl status locker$(RESET)\n" \
+			&& printf "  $(RED)  You may need to rebuild and reinstall: make install$(RESET)\n" \
+			&& exit 1 \
+		)
 	$(PAUSE)
 
 	@# ── Step 1: Ensure permissive mode ───────────────────────────
@@ -114,18 +134,16 @@ demo: ## Run the interactive end-to-end demo (requires root)
 	@printf "  $(DIM)Permissive mode means Locker monitors your device connection$(RESET)\n"
 	@printf "  $(DIM)but does NOT stop any services. Think of it as 'dry-run' mode.$(RESET)\n"
 	@printf "  $(DIM)We start here so nothing gets disrupted while we configure.$(RESET)\n"
-	@echo ""
-	@printf "  $(BLUE)$$ locker set-mode permissive$(RESET)\n"
-	@locker set-mode permissive
+	$(call SUDO_CMD,locker set-mode permissive)
 	@echo ""
 	@printf "  $(GREEN)✓ Mode is now permissive — safe to configure.$(RESET)\n"
 	$(PAUSE)
 
 	@# ── Log the demo start ───────────────────────────────────────
 	@echo ""
-	@printf "$(BRED)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)\n"
-	@printf "$(BRED)         >>>  STARTING END-TO-END DEMO  <<<                  $(RESET)\n"
-	@printf "$(BRED)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)\n"
+	@printf "$(BOLD)$(TEAL)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)\n"
+	@printf "$(BOLD)$(TEAL)         >>>  STARTING END-TO-END DEMO  <<<                  $(RESET)\n"
+	@printf "$(BOLD)$(TEAL)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)\n"
 	@echo ""
 	$(PAUSE)
 
@@ -135,37 +153,36 @@ demo: ## Run the interactive end-to-end demo (requires root)
 	@printf "  $(DIM)This only removes them from Locker's watchlist —$(RESET)\n"
 	@printf "  $(DIM)the actual services on the system are untouched.$(RESET)\n"
 	@echo ""
-	@printf "  $(BLUE)$$ locker list-services$(RESET)\n"
+	@printf "  $(TEAL)$$ locker list-services$(RESET)\n"
 	@locker list-services || true
 	@echo ""
-	@printf "  $(YELLOW)Removing all configured services...$(RESET)\n"
+	@printf "  $(DIM)Removing all configured services...$(RESET)\n"
 	@for svc in $$(python3 -c "import json; c=json.load(open('/etc/locker/config.json')); [print(s) for s in c.get('services',[])]" 2>/dev/null); do \
-		printf "  $(BLUE)$$ locker remove-service $$svc$(RESET)\n"; \
-		locker remove-service $$svc 2>/dev/null || true; \
+		printf "\n  $(YELLOW)The following command requires elevated privileges:$(RESET)\n"; \
+		printf "  $(BOLD)$(TEAL)\$$ sudo locker remove-service $$svc$(RESET)\n"; \
+		printf "  $(DIM)Press ENTER to authorize and run ───$(RESET) " && read _auth; \
+		sudo locker remove-service $$svc 2>/dev/null || true; \
 		echo ""; \
 	done
-	@printf "  $(BLUE)$$ locker list-services$(RESET)\n"
+	@printf "  $(TEAL)$$ locker list-services$(RESET)\n"
 	@locker list-services || true
 	@echo ""
 	@printf "  $(GREEN)✓ Service list is now empty.$(RESET)\n"
 	$(PAUSE)
 
 	@# ── Step 3: Add services ─────────────────────────────────────
-	$(call HEADER,"Step 3 — Adding services to protect: cron and ssh")
-	@printf "  $(DIM)We'll tell Locker to manage 'cron' and 'ssh'.$(RESET)\n"
+	$(call HEADER,"Step 3 — Adding services to protect: cron, ssh, and sshd")
+	@printf "  $(DIM)We'll tell Locker to manage 'cron', 'ssh', and 'sshd'.$(RESET)\n"
 	@printf "  $(DIM)When the configured Android device is disconnected, Locker$(RESET)\n"
 	@printf "  $(DIM)will stop these services. When it reconnects — they start back up.$(RESET)\n"
+	$(call SUDO_CMD,locker add-service cron)
+	$(call SUDO_CMD,locker add-service ssh)
+	$(call SUDO_CMD,locker add-service sshd)
 	@echo ""
-	@printf "  $(BLUE)$$ locker add-service cron$(RESET)\n"
-	@locker add-service cron
-	@echo ""
-	@printf "  $(BLUE)$$ locker add-service ssh$(RESET)\n"
-	@locker add-service ssh
-	@echo ""
-	@printf "  $(BLUE)$$ locker list-services$(RESET)\n"
+	@printf "  $(TEAL)$$ locker list-services$(RESET)\n"
 	@locker list-services
 	@echo ""
-	@printf "  $(GREEN)✓ Both cron and ssh are now managed by Locker.$(RESET)\n"
+	@printf "  $(GREEN)✓ cron, ssh, and sshd are now managed by Locker.$(RESET)\n"
 	$(PAUSE)
 
 	@# ── Step 4: Configure the Android device serial ──────────────
@@ -173,11 +190,9 @@ demo: ## Run the interactive end-to-end demo (requires root)
 	@printf "  $(DIM)Locker uses a specific Android device as your physical 'key'.$(RESET)\n"
 	@printf "  $(DIM)Only when this device is connected will services stay running.$(RESET)\n"
 	@printf "  $(DIM)We'll set the serial to our demo device: $(BOLD)$(MOCK_SERIAL)$(RESET)\n"
+	$(call SUDO_CMD,locker set-android-serial $(MOCK_SERIAL))
 	@echo ""
-	@printf "  $(BLUE)$$ locker set-android-serial $(MOCK_SERIAL)$(RESET)\n"
-	@locker set-android-serial $(MOCK_SERIAL)
-	@echo ""
-	@printf "  $(BLUE)$$ locker get-android-serial$(RESET)\n"
+	@printf "  $(TEAL)$$ locker get-android-serial$(RESET)\n"
 	@locker get-android-serial
 	@echo ""
 	@printf "  $(GREEN)✓ Device serial configured.$(RESET)\n"
@@ -192,9 +207,7 @@ demo: ## Run the interactive end-to-end demo (requires root)
 	@printf "  $(DIM)If the file exists, is valid JSON, and its 'android_serial'$(RESET)\n"
 	@printf "  $(DIM)value matches the configured serial — the device is treated$(RESET)\n"
 	@printf "  $(DIM)as connected. Let's create it now.$(RESET)\n"
-	@echo ""
-	@printf "  $(BLUE)$$ echo '{\"android_serial\": \"$(MOCK_SERIAL)\"}' > $(SERIALS_FILE)$(RESET)\n"
-	@echo '{"android_serial": "$(MOCK_SERIAL)"}' > $(SERIALS_FILE)
+	$(call SUDO_CMD,bash -c 'echo '"'"'{"android_serial": "$(MOCK_SERIAL)"}'"'"' > $(SERIALS_FILE)')
 	@printf "  $(GREEN)✓ Connected serials file created — device is now 'connected'.$(RESET)\n"
 	$(PAUSE)
 
@@ -203,14 +216,12 @@ demo: ## Run the interactive end-to-end demo (requires root)
 	@printf "  $(DIM)This is the moment of truth. In enforcing mode, Locker$(RESET)\n"
 	@printf "  $(DIM)will $(BOLD)actively stop$(RESET)$(DIM) services when the device is gone,$(RESET)\n"
 	@printf "  $(DIM)and $(BOLD)automatically start$(RESET)$(DIM) them when it comes back.$(RESET)\n"
-	@echo ""
-	@printf "  $(BLUE)$$ locker set-mode enforcing$(RESET)\n"
-	@locker set-mode enforcing
+	$(call SUDO_CMD,locker set-mode enforcing)
 	@echo ""
 	@printf "  $(GREEN)✓ Enforcing mode active. Locker is now protecting your services.$(RESET)\n"
 	$(PAUSE)
 
-	@# ── Step 7: Show current status ──────────────────────────────
+	@# ── Step 7: Show current status (expect: active) ─────────────
 	$(call HEADER,"Step 7 — Current status (device 'connected')")
 	@printf "  $(DIM)The connected serials file is present, so Locker sees the$(RESET)\n"
 	@printf "  $(DIM)device as connected. Services should be RUNNING.$(RESET)\n"
@@ -218,84 +229,86 @@ demo: ## Run the interactive end-to-end demo (requires root)
 	@printf "  $(YELLOW)Waiting for the service to pick up the config...$(RESET)\n"
 	@sleep 7
 	@echo ""
-	@printf "  $(BLUE)$$ locker list-services$(RESET)\n"
+	@printf "  $(TEAL)$$ locker list-services$(RESET)\n"
 	@locker list-services
 	@echo ""
-	@printf "  $(BLUE)$$ systemctl is-active cron$(RESET)\n"
-	@systemctl is-active cron && printf "  $(GREEN)→ cron: active$(RESET)\n" || printf "  $(RED)→ cron: inactive$(RESET)\n"
-	@printf "  $(BLUE)$$ systemctl is-active ssh$(RESET)\n"
-	@systemctl is-active ssh && printf "  $(GREEN)→ ssh:  active$(RESET)\n" || printf "  $(RED)→ ssh:  inactive$(RESET)\n"
+	@printf "  $(TEAL)$$ systemctl is-active cron$(RESET)\n"
+	@systemctl is-active cron && printf "  $(GREEN)→ cron: active$(RESET)\n" || printf "  $(RED)→ cron: inactive (unexpected!)$(RESET)\n"
+	@printf "  $(TEAL)$$ systemctl is-active ssh$(RESET)\n"
+	@systemctl is-active ssh && printf "  $(GREEN)→ ssh:  active$(RESET)\n" || printf "  $(RED)→ ssh:  inactive (unexpected!)$(RESET)\n"
+	@printf "  $(TEAL)$$ systemctl is-active sshd$(RESET)\n"
+	@systemctl is-active sshd && printf "  $(GREEN)→ sshd: active$(RESET)\n" || printf "  $(RED)→ sshd: inactive (unexpected!)$(RESET)\n"
 	@echo ""
-	@printf "  $(GREEN)✓ Both services are running — device is 'connected'.$(RESET)\n"
+	@printf "  $(GREEN)✓ All services are running — device is 'connected'.$(RESET)\n"
 	$(PAUSE)
 
-	@# ── Step 8: Simulate device disconnection ────────────────────
+	@# ── Step 8: Simulate device disconnection (expect: inactive) ─
 	$(call HEADER,"Step 8 — Simulating device DISCONNECTION")
 	@printf "  $(DIM)Now we remove the connected serials file. This simulates$(RESET)\n"
 	@printf "  $(DIM)unplugging the Android device from the server.$(RESET)\n"
-	@echo ""
-	@printf "  $(RED)$$ rm $(SERIALS_FILE)$(RESET)\n"
-	@rm -f $(SERIALS_FILE)
-	@printf "  $(RED)✗ Device is now 'disconnected'.$(RESET)\n"
+	$(call SUDO_CMD,rm -f $(SERIALS_FILE))
+	@printf "  $(GREEN)✓ File removed — device is now 'disconnected'.$(RESET)\n"
 	@echo ""
 	@printf "  $(YELLOW)Waiting for Locker to detect the disconnection...$(RESET)\n"
 	@sleep 7
 	@echo ""
-	@printf "  $(BLUE)$$ locker list-services$(RESET)\n"
+	@printf "  $(TEAL)$$ locker list-services$(RESET)\n"
 	@locker list-services
 	@echo ""
-	@printf "  $(BLUE)$$ systemctl is-active cron$(RESET)\n"
-	@systemctl is-active cron && printf "  $(GREEN)→ cron: active$(RESET)\n" || printf "  $(RED)→ cron: inactive$(RESET)\n"
-	@printf "  $(BLUE)$$ systemctl is-active ssh$(RESET)\n"
-	@systemctl is-active ssh && printf "  $(GREEN)→ ssh:  active$(RESET)\n" || printf "  $(RED)→ ssh:  inactive$(RESET)\n"
+	@printf "  $(TEAL)$$ systemctl is-active cron$(RESET)\n"
+	@systemctl is-active cron && printf "  $(RED)→ cron: active (Locker should have stopped it!)$(RESET)\n" || printf "  $(GREEN)→ cron: inactive$(RESET)\n"
+	@printf "  $(TEAL)$$ systemctl is-active ssh$(RESET)\n"
+	@systemctl is-active ssh && printf "  $(RED)→ ssh:  active (Locker should have stopped it!)$(RESET)\n" || printf "  $(GREEN)→ ssh:  inactive$(RESET)\n"
+	@printf "  $(TEAL)$$ systemctl is-active sshd$(RESET)\n"
+	@systemctl is-active sshd && printf "  $(RED)→ sshd: active (Locker should have stopped it!)$(RESET)\n" || printf "  $(GREEN)→ sshd: inactive$(RESET)\n"
 	@echo ""
-	@printf "  $(RED)✓ Services have been STOPPED by Locker. The system is locked down.$(RESET)\n"
+	@printf "  $(GREEN)✓ Services have been STOPPED by Locker. The system is locked down.$(RESET)\n"
 	$(PAUSE)
 
-	@# ── Step 9: Try to start them manually ───────────────────────
+	@# ── Step 9: Try to start them manually (expect: inactive) ────
 	$(call HEADER,"Step 9 — Can someone restart the services manually?")
 	@printf "  $(DIM)Let's say an attacker (or a curious admin) tries to$(RESET)\n"
-	@printf "  $(DIM)start cron and ssh manually. Will they stay up?$(RESET)\n"
-	@echo ""
-	@printf "  $(YELLOW)$$ systemctl start cron$(RESET)\n"
-	@systemctl start cron 2>/dev/null || true
-	@printf "  $(YELLOW)$$ systemctl start ssh$(RESET)\n"
-	@systemctl start ssh 2>/dev/null || true
+	@printf "  $(DIM)start cron, ssh, and sshd manually. Will they stay up?$(RESET)\n"
+	$(call SUDO_CMD,systemctl start cron)
+	$(call SUDO_CMD,systemctl start ssh)
+	$(call SUDO_CMD,systemctl start sshd)
 	@echo ""
 	@printf "  $(DIM)Services started manually. Let's wait and see what happens...$(RESET)\n"
 	@sleep 7
 	@echo ""
-	@printf "  $(BLUE)$$ systemctl is-active cron$(RESET)\n"
-	@systemctl is-active cron && printf "  $(GREEN)→ cron: active$(RESET)\n" || printf "  $(RED)→ cron: inactive$(RESET)\n"
-	@printf "  $(BLUE)$$ systemctl is-active ssh$(RESET)\n"
-	@systemctl is-active ssh && printf "  $(GREEN)→ ssh:  active$(RESET)\n" || printf "  $(RED)→ ssh:  inactive$(RESET)\n"
+	@printf "  $(TEAL)$$ systemctl is-active cron$(RESET)\n"
+	@systemctl is-active cron && printf "  $(RED)→ cron: active (Locker should have stopped it!)$(RESET)\n" || printf "  $(GREEN)→ cron: inactive$(RESET)\n"
+	@printf "  $(TEAL)$$ systemctl is-active ssh$(RESET)\n"
+	@systemctl is-active ssh && printf "  $(RED)→ ssh:  active (Locker should have stopped it!)$(RESET)\n" || printf "  $(GREEN)→ ssh:  inactive$(RESET)\n"
+	@printf "  $(TEAL)$$ systemctl is-active sshd$(RESET)\n"
+	@systemctl is-active sshd && printf "  $(RED)→ sshd: active (Locker should have stopped it!)$(RESET)\n" || printf "  $(GREEN)→ sshd: inactive$(RESET)\n"
 	@echo ""
-	@printf "  $(RED)✓ Locker stopped them again!$(RESET) As long as the device is\n"
+	@printf "  $(GREEN)✓ Locker stopped them again!$(RESET) As long as the device is\n"
 	@printf "    disconnected, Locker keeps enforcing the lockdown.\n"
 	@printf "    $(BOLD)Services cannot be started without the Android device.$(RESET)\n"
 	$(PAUSE)
 
-	@# ── Step 10: Reconnect the device ────────────────────────────
+	@# ── Step 10: Reconnect the device (expect: active) ───────────
 	$(call HEADER,"Step 10 — Reconnecting the device")
 	@printf "  $(DIM)The authorized user plugs the Android device back in.$(RESET)\n"
 	@printf "  $(DIM)(We re-create the connected serials file.)$(RESET)\n"
-	@echo ""
-	@printf "  $(GREEN)$$ echo '{\"android_serial\": \"$(MOCK_SERIAL)\"}' > $(SERIALS_FILE)$(RESET)\n"
-	@echo '{"android_serial": "$(MOCK_SERIAL)"}' > $(SERIALS_FILE)
+	$(call SUDO_CMD,bash -c 'echo '"'"'{"android_serial": "$(MOCK_SERIAL)"}'"'"' > $(SERIALS_FILE)')
 	@printf "  $(GREEN)✓ Device reconnected.$(RESET)\n"
 	@echo ""
 	@printf "  $(YELLOW)Waiting for Locker to detect the reconnection...$(RESET)\n"
 	@sleep 7
 	@echo ""
-	@printf "  $(BLUE)$$ locker list-services$(RESET)\n"
+	@printf "  $(TEAL)$$ locker list-services$(RESET)\n"
 	@locker list-services
 	@echo ""
-	@printf "  $(BLUE)$$ systemctl is-active cron$(RESET)\n"
-	@systemctl is-active cron && printf "  $(GREEN)→ cron: active$(RESET)\n" || printf "  $(RED)→ cron: inactive$(RESET)\n"
-	@printf "  $(BLUE)$$ systemctl is-active ssh$(RESET)\n"
-	@systemctl is-active ssh && printf "  $(GREEN)→ ssh:  active$(RESET)\n" || printf "  $(RED)→ ssh:  inactive$(RESET)\n"
+	@printf "  $(TEAL)$$ systemctl is-active cron$(RESET)\n"
+	@systemctl is-active cron && printf "  $(GREEN)→ cron: active$(RESET)\n" || printf "  $(RED)→ cron: inactive (unexpected!)$(RESET)\n"
+	@printf "  $(TEAL)$$ systemctl is-active ssh$(RESET)\n"
+	@systemctl is-active ssh && printf "  $(GREEN)→ ssh:  active$(RESET)\n" || printf "  $(RED)→ ssh:  inactive (unexpected!)$(RESET)\n"
+	@printf "  $(TEAL)$$ systemctl is-active sshd$(RESET)\n"
+	@systemctl is-active sshd && printf "  $(GREEN)→ sshd: active$(RESET)\n" || printf "  $(RED)→ sshd: inactive (unexpected!)$(RESET)\n"
 	@echo ""
-	@printf "  $(GREEN)✓ Services are back RUNNING. The device was recognized$(RESET)\n"
+	@printf "  $(GREEN)✓ All services are back RUNNING. The device was recognized$(RESET)\n"
 	@printf "  $(GREEN)  and Locker automatically unlocked the system.$(RESET)\n"
 	$(PAUSE)
 
@@ -304,34 +317,35 @@ demo: ## Run the interactive end-to-end demo (requires root)
 	@printf "  $(DIM)Every action — service starts, stops, device checks,$(RESET)\n"
 	@printf "  $(DIM)CLI commands — is logged to /var/log/locker.log.$(RESET)\n"
 	@echo ""
-	@printf "  $(BLUE)$$ locker logs -n 30$(RESET)\n"
+	@printf "  $(TEAL)$$ locker logs -n 30$(RESET)\n"
 	@echo ""
 	@locker logs -n 30
 	$(PAUSE)
 
 	@# ── Cleanup ──────────────────────────────────────────────────
 	$(call HEADER,"Cleanup — Restoring safe state")
-	@printf "  $(BLUE)$$ locker set-mode permissive$(RESET)\n"
-	@locker set-mode permissive
+	$(call SUDO_CMD,locker set-mode permissive)
 	@echo ""
-	@printf "  $(DIM)Restarting cron and ssh to leave the system healthy...$(RESET)\n"
-	@systemctl start cron 2>/dev/null || true
-	@systemctl start ssh 2>/dev/null || true
-	@rm -f $(SERIALS_FILE)
+	@printf "  $(DIM)Restarting cron, ssh, and sshd to leave the system healthy...$(RESET)\n"
+	$(call SUDO_CMD,systemctl start cron)
+	$(call SUDO_CMD,systemctl start ssh)
+	$(call SUDO_CMD,systemctl start sshd)
+	$(call SUDO_CMD,rm -f $(SERIALS_FILE))
+	@echo ""
 	@printf "  $(GREEN)✓ System restored to safe state.$(RESET)\n"
 	@echo ""
-	@printf "$(BOLD)$(TEAL)╔══════════════════════════════════════════════════════════════╗$(RESET)\n"
-	@printf "$(BOLD)$(TEAL)║                                                            ║$(RESET)\n"
-	@printf "$(BOLD)$(TEAL)║                    Demo Complete!                          ║$(RESET)\n"
-	@printf "$(BOLD)$(TEAL)║                                                            ║$(RESET)\n"
-	@printf "$(BOLD)$(TEAL)║$(RESET)   Locker continuously monitors your Android device and     $(BOLD)$(TEAL)║$(RESET)\n"
-	@printf "$(BOLD)$(TEAL)║$(RESET)   enforces service lockdowns in real time. No one can      $(BOLD)$(TEAL)║$(RESET)\n"
-	@printf "$(BOLD)$(TEAL)║$(RESET)   restart protected services without the physical device.  $(BOLD)$(TEAL)║$(RESET)\n"
-	@printf "$(BOLD)$(TEAL)║                                                            ║$(RESET)\n"
-	@printf "$(BOLD)$(TEAL)║$(RESET)   $(BLUE)locker add-service <name>$(RESET)    — protect a service       $(BOLD)$(TEAL)║$(RESET)\n"
-	@printf "$(BOLD)$(TEAL)║$(RESET)   $(BLUE)locker set-mode enforcing$(RESET)    — activate enforcement    $(BOLD)$(TEAL)║$(RESET)\n"
-	@printf "$(BOLD)$(TEAL)║$(RESET)   $(BLUE)locker list-services$(RESET)         — see managed services    $(BOLD)$(TEAL)║$(RESET)\n"
-	@printf "$(BOLD)$(TEAL)║$(RESET)   $(BLUE)locker logs -f$(RESET)               — follow the audit log    $(BOLD)$(TEAL)║$(RESET)\n"
-	@printf "$(BOLD)$(TEAL)║                                                            ║$(RESET)\n"
-	@printf "$(BOLD)$(TEAL)╚══════════════════════════════════════════════════════════════╝$(RESET)\n"
+	@printf "$(BOLD)$(TEAL)╔══════════════════════════════════════════════════════════════════════════════$(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║    					                                                      $(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║                    Demo Complete!  					                      $(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║                                                        	    		      $(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║$(RESET)   Locker continuously monitors your Android device and  	   		  $(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║$(RESET)   enforces service lockdowns in real time. No one can  	   		  $(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║$(RESET)   restart protected services without the physical device. 	    	  $(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║                                                                              $(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║$(RESET)   $(TEAL)locker add-service <name>$(RESET)    — protect a service    $(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║$(RESET)   $(TEAL)locker set-mode enforcing$(RESET)    — activate enforcement $(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║$(RESET)   $(TEAL)locker list-services$(RESET)         — see managed services $(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║$(RESET)   $(TEAL)locker logs -f$(RESET)               — follow the audit log $(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║                                                                              $(RESET)\n"
+	@printf "$(BOLD)$(TEAL)╚══════════════════════════════════════════════════════════════════════════════$(RESET)\n"
 	@echo ""
