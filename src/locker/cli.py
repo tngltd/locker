@@ -98,12 +98,26 @@ class LockCLI:
         config.save_config(config_dict, self.config_path, suggested_sudo_cmd=suggested_sudo_cmd)
 
     def get_android_serial(self) -> Optional[str]:
-        """Get configured Android device serial (try config.json first, then file as fallback)"""
+        """Get configured Android device serial.
+        
+        Priority:
+        1. config.json android_serial (explicitly configured by user)
+        2. Mock device file serial (if /etc/locker/connect_android_serials.json exists)
+        """
         loaded_config = config.load_config(self.config_path)
-        return loaded_config['android_serial']
+        serial = loaded_config.get('android_serial')
+        if serial:
+            return serial
+        
+        # Fall back to mock device file
+        mock_device = utils.get_mock_device(config_dir=self.config_dir)
+        if mock_device:
+            return mock_device[0]
+        
+        return None
     
     def get_android_serial_cmd(self):
-        """Get Android serial from config"""
+        """Get Android serial from config and check mock device file"""
         self._log_command("get-android-serial")
         
         output_lines = []
@@ -118,6 +132,12 @@ class LockCLI:
             output_lines.append("Use \"locker set-android-serial\" to configure a device.")
         else:
             output_lines.append(f"Configured Android serial: {serial}")
+        
+        # Also check mock device file
+        mock_device = utils.get_mock_device(config_dir=self.config_dir)
+        if mock_device:
+            output_lines.append("")
+            output_lines.append(f"Mock device detected: {mock_device[0]} (from {self.config_dir}/connect_android_serials.json)")
         
         output = "\n".join(output_lines)
         for line in output_lines:
@@ -461,12 +481,14 @@ class LockCLI:
             loaded_config = self.load_config()
             
             # In enforcing mode, require Android serial to be configured
+            # (either in config or via mock device file)
             if mode == 'enforcing':
-                serial = loaded_config.get('android_serial')
+                serial = self.get_android_serial()
                 if not serial:
                     output_lines = [
                         "Error: Cannot set enforcing mode without configured Android serial.",
-                        "Run \"locker set-android-serial\" first."
+                        "Run \"locker set-android-serial\" first,",
+                        "or create a mock device file at /etc/locker/connect_android_serials.json"
                     ]
                     output = "\n".join(output_lines)
                     for line in output_lines:
@@ -779,13 +801,17 @@ class LockCLI:
             if self.logger:
                 self.logger.error(f"CLI: {msg}")
     
-    def status(self):
-        """Show service status"""
-        self._log_command("status")
+    def get_status(self):
+        """Show current mode and overall status"""
+        self._log_command("get-status")
         
         output_lines = []
-        output_lines.append("=== Lock Service Status ===")
+        output_lines.append("=== Locker Status ===")
         output_lines.append("")
+        
+        loaded_config = self.load_config()
+        mode = loaded_config.get('mode', 'permissive')
+        output_lines.append(f"Mode: {mode}")
         
         # Service running status
         is_running = self.is_service_running()
@@ -798,19 +824,18 @@ class LockCLI:
             output_lines.append("Android device: Not configured")
         else:
             output_lines.append(f"Android device: {serial}")
-            devices = utils.get_connected_devices()
+            devices = utils.get_connected_devices(config_dir=self.config_dir)
             connected_serials = [d[0] for d in devices]
             if serial in connected_serials:
-                output_lines.append("Status: CONNECTED")
+                output_lines.append("Device status: CONNECTED")
             else:
-                output_lines.append("Status: DISCONNECTED")
+                output_lines.append("Device status: DISCONNECTED")
         output_lines.append("")
         
-        # System lock status (based on services)
-        loaded_config = self.load_config()
+        # Configured services
         services = loaded_config.get('services', [])
         if services:
-            output_lines.append("Configured services:")
+            output_lines.append(f"Managed services ({len(services)}):")
             for service_name in services:
                 try:
                     result = subprocess.run(
@@ -857,6 +882,9 @@ def main():
     set_mode_parser.add_argument('mode', nargs='?', choices=['permissive', 'enforcing'],
                                 help='Mode: permissive (no locking) or enforcing (lock when device disconnected)')
     
+    # Status
+    subparsers.add_parser('get-status', help='Show current mode and service status')
+    
     # Utility commands
     logs_parser = subparsers.add_parser('logs', help='Show service logs')
     logs_parser.add_argument('-n', '--lines', type=int, default=50,
@@ -886,6 +914,8 @@ def main():
         cli.list_services()
     elif args.command == 'set-mode':
         cli.set_mode(getattr(args, 'mode', None))
+    elif args.command == 'get-status':
+        cli.get_status()
     elif args.command == 'logs':
         cli.logs(args.lines, args.follow)
 

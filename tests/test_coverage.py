@@ -1036,7 +1036,7 @@ class TestCLICoverage(unittest.TestCase):
             self.assertIn("Cancelled", output_text)
     
     def test_emergency_unlock_exception_handling(self):
-        """Test emergency_unlock handles exceptions (patch config.load_config - used by emergency_unlock and status)"""
+        """Test emergency_unlock handles exceptions (patch config.load_config - used by emergency_unlock and get_status)"""
         mock_config = {'services': ['ssh'], 'android_serial': None}
         with patch('builtins.input', return_value='yes'):
             with patch('locker.cli.config.load_config', return_value=mock_config):
@@ -1046,10 +1046,10 @@ class TestCLICoverage(unittest.TestCase):
                         self.cli.emergency_unlock()
                     output_text = ' '.join(output)
                     self.assertIn("Error", output_text)
-                    # status() also uses subprocess.run; with same patch it prints UNKNOWN for service status
+                    # get_status() also uses subprocess.run; with same patch it prints UNKNOWN for service status
                     output.clear()
                     with patch('builtins.print', side_effect=lambda *a, **kw: output.extend(str(x) for x in a)):
-                        self.cli.status()
+                        self.cli.get_status()
                     output_text = ' '.join(output)
                     self.assertIn("UNKNOWN", output_text)
     
@@ -1487,7 +1487,7 @@ class TestCLICoverage(unittest.TestCase):
     # Removed test_emergency_unlock_with_blocked_interfaces - blocked_interfaces no longer used
     
     def test_status_service_running_device_connected(self):
-        """Test status when service is running and device is connected"""
+        """Test get_status when service is running and device is connected"""
         with patch.object(self.cli, 'is_service_running', return_value=True):
             with patch.object(self.cli, 'get_android_serial', return_value="DEVICE123"):
                 with patch('locker.cli.utils.get_connected_devices', return_value=[("DEVICE123", "Test")]):
@@ -1495,7 +1495,7 @@ class TestCLICoverage(unittest.TestCase):
                         mock_subprocess.return_value = Mock(returncode=0, stdout="Chain INPUT")
                         output = []
                         with patch('builtins.print', side_effect=lambda *a, **kw: output.extend(str(x) for x in a)):
-                            self.cli.status()
+                            self.cli.get_status()
                         
                         status_text = ' '.join(output)
                         self.assertIn("Yes", status_text)
@@ -1503,15 +1503,15 @@ class TestCLICoverage(unittest.TestCase):
                         self.assertIn("CONNECTED", status_text)
     
     def test_status_service_not_running_device_disconnected(self):
-        """Test status when service not running and device disconnected"""
+        """Test get_status when service not running and device disconnected"""
         with patch.object(self.cli, 'is_service_running', return_value=False):
             with patch.object(self.cli, 'get_android_serial', return_value="DEVICE123"):
-                with patch('locker.utils.get_connected_devices', return_value=[]):
+                with patch('locker.cli.utils.get_connected_devices', return_value=[]):
                     with patch('subprocess.run') as mock_subprocess:
                         mock_subprocess.return_value = Mock(returncode=0, stdout="Chain INPUT")
                         output = []
                         with patch('builtins.print', side_effect=lambda *a, **kw: output.extend(str(x) for x in a)):
-                            self.cli.status()
+                            self.cli.get_status()
                         
                         status_text = ' '.join(output)
                         self.assertIn("No", status_text)
@@ -1652,6 +1652,7 @@ class TestMainFunctions(unittest.TestCase):
             ('list-devices', 'list_devices_cmd'),
             ('add-service', 'add_service'),
             ('set-mode', 'set_mode'),
+            ('get-status', 'get_status'),
             ('logs', 'logs'),
         ]
         
@@ -1675,8 +1676,427 @@ class TestMainFunctions(unittest.TestCase):
                                 pass  # argparse may exit for some commands
 
 
+class TestMockDeviceFile(unittest.TestCase):
+    """Tests for the mock device file functionality (connect_android_serials.json).
+    
+    Tests cover:
+    - utils.get_mock_device() — reading the mock file
+    - utils.get_connected_devices() — including mock devices in results
+    - CLI get_android_serial() — fallback to mock file
+    - CLI set_mode('enforcing') — allowed when mock file has serial
+    - CLI get_android_serial_cmd() — displays mock device info
+    - CLI get_status() — shows mock device info
+    - Service get_effective_serial() — fallback to mock file
+    - Service is_configured_device_connected() — matches against mock device
+    - Service run_once() — logs mock device source
+    """
+
+    def setUp(self):
+        """Set up test fixtures with a temp directory for mock files and config"""
+        self.test_dir = tempfile.mkdtemp()
+        self.config_path = os.path.join(self.test_dir, 'config.json')
+        self.config_dir = self.test_dir  # mock file goes directly in test_dir
+        self.log_file = os.path.join(self.test_dir, 'test.log')
+        self.mock_file_path = os.path.join(self.test_dir, 'connect_android_serials.json')
+
+        # Create test config with no android_serial
+        self.test_config = {
+            "service": {
+                "log_level": "CRITICAL",
+                "log_file": self.log_file
+            },
+            "monitoring": {
+                "check_interval_seconds": 5
+            },
+            "mode": "permissive",
+            "android_serial": None,
+            "services": ["ssh"]
+        }
+
+        with open(self.config_path, 'w') as f:
+            json.dump(self.test_config, f)
+
+        self._find_config_patcher = patch('locker.config.find_config_file', side_effect=_find_config_file_use_given_path)
+        self._find_config_patcher.start()
+
+        import logging
+        logging.disable(logging.CRITICAL)
+
+    def tearDown(self):
+        """Clean up test fixtures"""
+        self._find_config_patcher.stop()
+        import logging
+        logging.disable(logging.NOTSET)
+        shutil.rmtree(self.test_dir, ignore_errors=True)
+
+    def _write_mock_file(self, data):
+        """Helper to write the mock device JSON file"""
+        with open(self.mock_file_path, 'w') as f:
+            json.dump(data, f)
+
+    # ─── utils.get_mock_device() ────────────────────────────────
+
+    def test_get_mock_device_valid_file(self):
+        """get_mock_device returns (serial, 'Mock Device') when file is valid"""
+        from locker import utils
+        self._write_mock_file({"android_serial": "ABC123XYZ"})
+        result = utils.get_mock_device(config_dir=self.test_dir)
+        self.assertEqual(result, ("ABC123XYZ", "Mock Device"))
+
+    def test_get_mock_device_file_not_exists(self):
+        """get_mock_device returns None when file doesn't exist"""
+        from locker import utils
+        result = utils.get_mock_device(config_dir=self.test_dir)
+        self.assertIsNone(result)
+
+    def test_get_mock_device_empty_serial(self):
+        """get_mock_device returns None when serial is empty string"""
+        from locker import utils
+        self._write_mock_file({"android_serial": ""})
+        result = utils.get_mock_device(config_dir=self.test_dir)
+        self.assertIsNone(result)
+
+    def test_get_mock_device_whitespace_serial(self):
+        """get_mock_device returns None when serial is whitespace only"""
+        from locker import utils
+        self._write_mock_file({"android_serial": "   "})
+        result = utils.get_mock_device(config_dir=self.test_dir)
+        self.assertIsNone(result)
+
+    def test_get_mock_device_null_serial(self):
+        """get_mock_device returns None when serial is null"""
+        from locker import utils
+        self._write_mock_file({"android_serial": None})
+        result = utils.get_mock_device(config_dir=self.test_dir)
+        self.assertIsNone(result)
+
+    def test_get_mock_device_missing_key(self):
+        """get_mock_device returns None when android_serial key is missing"""
+        from locker import utils
+        self._write_mock_file({"some_other_key": "value"})
+        result = utils.get_mock_device(config_dir=self.test_dir)
+        self.assertIsNone(result)
+
+    def test_get_mock_device_invalid_json(self):
+        """get_mock_device returns None for invalid JSON"""
+        from locker import utils
+        with open(self.mock_file_path, 'w') as f:
+            f.write("not valid json {{{")
+        result = utils.get_mock_device(config_dir=self.test_dir)
+        self.assertIsNone(result)
+
+    def test_get_mock_device_integer_serial(self):
+        """get_mock_device returns None when serial is not a string"""
+        from locker import utils
+        self._write_mock_file({"android_serial": 12345})
+        result = utils.get_mock_device(config_dir=self.test_dir)
+        self.assertIsNone(result)
+
+    def test_get_mock_device_strips_whitespace(self):
+        """get_mock_device strips leading/trailing whitespace from serial"""
+        from locker import utils
+        self._write_mock_file({"android_serial": "  MOCK_SERIAL_123  "})
+        result = utils.get_mock_device(config_dir=self.test_dir)
+        self.assertEqual(result, ("MOCK_SERIAL_123", "Mock Device"))
+
+    def test_get_mock_device_logs_on_error(self):
+        """get_mock_device logs debug message on parse error"""
+        from locker import utils
+        import logging
+        logger = logging.getLogger('test_mock')
+        with open(self.mock_file_path, 'w') as f:
+            f.write("broken json")
+        with patch.object(logger, 'debug') as mock_debug:
+            result = utils.get_mock_device(config_dir=self.test_dir, logger=logger)
+        self.assertIsNone(result)
+        mock_debug.assert_called_once()
+
+    # ─── utils.get_connected_devices() with mock file ───────────
+
+    def test_get_connected_devices_includes_mock_device(self):
+        """get_connected_devices includes mock device from file"""
+        from locker import utils
+        self._write_mock_file({"android_serial": "MOCK_SERIAL_123"})
+        with patch('locker.utils.pyudev.Context') as mock_ctx:
+            mock_ctx.return_value.list_devices.return_value = []
+            devices = utils.get_connected_devices(config_dir=self.test_dir)
+        self.assertEqual(len(devices), 1)
+        self.assertEqual(devices[0], ("MOCK_SERIAL_123", "Mock Device"))
+
+    def test_get_connected_devices_no_mock_file(self):
+        """get_connected_devices returns empty when no mock file and no USB devices"""
+        from locker import utils
+        with patch('locker.utils.pyudev.Context') as mock_ctx:
+            mock_ctx.return_value.list_devices.return_value = []
+            devices = utils.get_connected_devices(config_dir=self.test_dir)
+        self.assertEqual(devices, [])
+
+    def test_get_connected_devices_deduplicates_mock_and_real(self):
+        """get_connected_devices does not duplicate if real device has same serial as mock"""
+        from locker import utils
+        self._write_mock_file({"android_serial": "DEVICE123"})
+        real_device = Mock()
+        real_device.get = Mock(side_effect=lambda k, default='': {
+            'ID_SERIAL_SHORT': 'DEVICE123',
+            'ID_SERIAL': 'DEVICE123',
+            'ID_USB_INTERFACES': '',
+            'ID_VENDOR_ID': '18d1',
+            'ID_MODEL': 'Pixel'
+        }.get(k, default))
+        with patch('locker.utils.pyudev.Context') as mock_ctx:
+            mock_ctx.return_value.list_devices.return_value = [real_device]
+            devices = utils.get_connected_devices(config_dir=self.test_dir)
+        serials = [d[0] for d in devices]
+        self.assertEqual(serials.count("DEVICE123"), 1)
+
+    # ─── CLI get_android_serial() fallback ──────────────────────
+
+    def test_cli_get_android_serial_config_takes_priority(self):
+        """CLI get_android_serial returns config serial when both config and mock exist"""
+        self._write_mock_file({"android_serial": "MOCK_SERIAL"})
+        # Write a config with an explicit serial
+        cfg = self.test_config.copy()
+        cfg['android_serial'] = 'CONFIG_SERIAL'
+        with open(self.config_path, 'w') as f:
+            json.dump(cfg, f)
+
+        cli = LockCLI()
+        cli.config_path = self.config_path
+        cli.config_dir = self.config_dir
+        serial = cli.get_android_serial()
+        self.assertEqual(serial, 'CONFIG_SERIAL')
+
+    def test_cli_get_android_serial_falls_back_to_mock(self):
+        """CLI get_android_serial returns mock serial when config has no serial"""
+        self._write_mock_file({"android_serial": "MOCK_SERIAL"})
+        cli = LockCLI()
+        cli.config_path = self.config_path
+        cli.config_dir = self.config_dir
+        serial = cli.get_android_serial()
+        self.assertEqual(serial, 'MOCK_SERIAL')
+
+    def test_cli_get_android_serial_none_when_no_source(self):
+        """CLI get_android_serial returns None when neither config nor mock file"""
+        cli = LockCLI()
+        cli.config_path = self.config_path
+        cli.config_dir = self.config_dir
+        serial = cli.get_android_serial()
+        self.assertIsNone(serial)
+
+    # ─── CLI set_mode('enforcing') with mock file ───────────────
+
+    def test_cli_set_mode_enforcing_allowed_with_mock_file(self):
+        """set_mode enforcing succeeds when only mock file has serial (no config serial)"""
+        self._write_mock_file({"android_serial": "MOCK_SERIAL"})
+        cli = LockCLI()
+        cli.config_path = self.config_path
+        cli.config_dir = self.config_dir
+        cli.logger = None
+
+        with patch('builtins.print'):
+            cli.set_mode('enforcing')
+
+        cfg = cli.load_config()
+        self.assertEqual(cfg['mode'], 'enforcing')
+
+    def test_cli_set_mode_enforcing_blocked_without_any_serial(self):
+        """set_mode enforcing fails when neither config nor mock file has serial"""
+        cli = LockCLI()
+        cli.config_path = self.config_path
+        cli.config_dir = self.config_dir
+        cli.logger = None
+
+        output = []
+        with patch('builtins.print', side_effect=lambda *a, **kw: output.extend(str(x) for x in a)):
+            cli.set_mode('enforcing')
+
+        output_text = ' '.join(output)
+        self.assertIn("Cannot set enforcing mode", output_text)
+        # Mode should still be permissive
+        cfg = cli.load_config()
+        self.assertEqual(cfg['mode'], 'permissive')
+
+    # ─── CLI get_android_serial_cmd() with mock ─────────────────
+
+    def test_cli_get_android_serial_cmd_shows_mock_device(self):
+        """get_android_serial_cmd output includes mock device info"""
+        self._write_mock_file({"android_serial": "MOCK_SERIAL_XYZ"})
+        cli = LockCLI()
+        cli.config_path = self.config_path
+        cli.config_dir = self.config_dir
+        cli.logger = None
+
+        output = []
+        with patch('builtins.print', side_effect=lambda *a, **kw: output.extend(str(x) for x in a)):
+            cli.get_android_serial_cmd()
+
+        output_text = ' '.join(output)
+        self.assertIn("MOCK_SERIAL_XYZ", output_text)
+        self.assertIn("Mock device", output_text)
+
+    # ─── CLI get_status() with mock ─────────────────────────────
+
+    def test_cli_get_status_shows_mock_serial(self):
+        """get_status shows mock device serial when config has none"""
+        self._write_mock_file({"android_serial": "MOCK_SERIAL_STATUS"})
+        cli = LockCLI()
+        cli.config_path = self.config_path
+        cli.config_dir = self.config_dir
+        cli.logger = None
+
+        with patch.object(cli, 'is_service_running', return_value=True):
+            with patch('locker.cli.utils.get_connected_devices', return_value=[("MOCK_SERIAL_STATUS", "Mock Device")]):
+                with patch('subprocess.run') as mock_sub:
+                    mock_sub.return_value = Mock(returncode=0)
+                    output = []
+                    with patch('builtins.print', side_effect=lambda *a, **kw: output.extend(str(x) for x in a)):
+                        cli.get_status()
+
+        output_text = ' '.join(output)
+        self.assertIn("MOCK_SERIAL_STATUS", output_text)
+        self.assertIn("CONNECTED", output_text)
+
+    # ─── Service get_effective_serial() ─────────────────────────
+
+    def test_service_get_effective_serial_from_config(self):
+        """get_effective_serial returns config serial when present"""
+        cfg = self.test_config.copy()
+        cfg['android_serial'] = 'CONFIG_DEVICE'
+        with open(self.config_path, 'w') as f:
+            json.dump(cfg, f)
+
+        service = LockService(config_path=self.config_path, config_dir=self.config_dir)
+        serial = service.get_effective_serial()
+        self.assertEqual(serial, 'CONFIG_DEVICE')
+
+    def test_service_get_effective_serial_fallback_to_mock(self):
+        """get_effective_serial falls back to mock file when config has no serial"""
+        self._write_mock_file({"android_serial": "MOCK_FALLBACK"})
+        service = LockService(config_path=self.config_path, config_dir=self.config_dir)
+        serial = service.get_effective_serial()
+        self.assertEqual(serial, 'MOCK_FALLBACK')
+
+    def test_service_get_effective_serial_none_when_no_source(self):
+        """get_effective_serial returns None when neither config nor mock file"""
+        service = LockService(config_path=self.config_path, config_dir=self.config_dir)
+        serial = service.get_effective_serial()
+        self.assertIsNone(serial)
+
+    def test_service_get_effective_serial_config_priority_over_mock(self):
+        """get_effective_serial prefers config serial over mock file"""
+        self._write_mock_file({"android_serial": "MOCK_SERIAL"})
+        cfg = self.test_config.copy()
+        cfg['android_serial'] = 'CONFIG_SERIAL'
+        with open(self.config_path, 'w') as f:
+            json.dump(cfg, f)
+
+        service = LockService(config_path=self.config_path, config_dir=self.config_dir)
+        serial = service.get_effective_serial()
+        self.assertEqual(serial, 'CONFIG_SERIAL')
+
+    # ─── Service is_configured_device_connected() with mock ─────
+
+    def test_service_is_connected_via_mock_device(self):
+        """is_configured_device_connected returns True when mock file serial matches"""
+        self._write_mock_file({"android_serial": "MOCK_CONNECTED"})
+        service = LockService(config_path=self.config_path, config_dir=self.config_dir)
+
+        with patch('locker.utils.pyudev.Context') as mock_ctx:
+            mock_ctx.return_value.list_devices.return_value = []
+            # get_connected_devices will find the mock device
+            result = service.is_configured_device_connected()
+        self.assertTrue(result)
+
+    def test_service_is_not_connected_when_mock_file_missing(self):
+        """is_configured_device_connected returns False when no mock file and no config serial"""
+        service = LockService(config_path=self.config_path, config_dir=self.config_dir)
+
+        with patch('locker.utils.pyudev.Context') as mock_ctx:
+            mock_ctx.return_value.list_devices.return_value = []
+            result = service.is_configured_device_connected()
+        self.assertFalse(result)
+
+    # ─── Service run_once() with mock device ────────────────────
+
+    def test_service_run_once_logs_mock_device_source(self):
+        """run_once logs 'source: mock device file' when using mock serial"""
+        self._write_mock_file({"android_serial": "MOCK_RUN_SERIAL"})
+        service = LockService(config_path=self.config_path, config_dir=self.config_dir)
+
+        log_messages = []
+        service.logger = Mock()
+        service.logger.info = Mock(side_effect=lambda msg: log_messages.append(msg))
+        service.logger.warning = Mock(side_effect=lambda msg: log_messages.append(msg))
+
+        with patch('locker.utils.pyudev.Context') as mock_ctx:
+            mock_ctx.return_value.list_devices.return_value = []
+            with patch('locker.utils.is_service_running', return_value=True):
+                service.run_once()
+
+        all_logs = ' '.join(log_messages)
+        self.assertIn("mock device file", all_logs)
+        self.assertIn("MOCK_RUN_SERIAL", all_logs)
+        self.assertIn("CONNECTED", all_logs)
+
+    def test_service_run_once_logs_config_source(self):
+        """run_once logs 'source: config' when using config serial"""
+        self._write_mock_file({"android_serial": "MOCK_SERIAL"})
+        cfg = self.test_config.copy()
+        cfg['android_serial'] = 'CONFIG_SERIAL'
+        with open(self.config_path, 'w') as f:
+            json.dump(cfg, f)
+
+        service = LockService(config_path=self.config_path, config_dir=self.config_dir)
+        log_messages = []
+        service.logger = Mock()
+        service.logger.info = Mock(side_effect=lambda msg: log_messages.append(msg))
+        service.logger.warning = Mock(side_effect=lambda msg: log_messages.append(msg))
+
+        with patch('locker.utils.pyudev.Context') as mock_ctx:
+            mock_ctx.return_value.list_devices.return_value = []
+            with patch('locker.utils.is_service_running', return_value=True):
+                service.run_once()
+
+        all_logs = ' '.join(log_messages)
+        self.assertIn("source: config", all_logs)
+        self.assertIn("CONFIG_SERIAL", all_logs)
+
+    def test_service_run_once_no_device_when_no_mock_no_config(self):
+        """run_once logs 'No Android device configured' when neither source exists"""
+        service = LockService(config_path=self.config_path, config_dir=self.config_dir)
+        log_messages = []
+        service.logger = Mock()
+        service.logger.info = Mock(side_effect=lambda msg: log_messages.append(msg))
+        service.logger.warning = Mock(side_effect=lambda msg: log_messages.append(msg))
+
+        with patch('locker.utils.pyudev.Context') as mock_ctx:
+            mock_ctx.return_value.list_devices.return_value = []
+            service.run_once()
+
+        all_logs = ' '.join(log_messages)
+        self.assertIn("No Android device configured", all_logs)
+
+    def test_service_run_once_disconnected_when_mock_deleted(self):
+        """run_once shows DISCONNECTED when config has serial but mock file is deleted"""
+        cfg = self.test_config.copy()
+        cfg['android_serial'] = 'ORPHAN_SERIAL'
+        with open(self.config_path, 'w') as f:
+            json.dump(cfg, f)
+
+        service = LockService(config_path=self.config_path, config_dir=self.config_dir)
+        log_messages = []
+        service.logger = Mock()
+        service.logger.info = Mock(side_effect=lambda msg: log_messages.append(msg))
+        service.logger.warning = Mock(side_effect=lambda msg: log_messages.append(msg))
+
+        with patch('locker.utils.pyudev.Context') as mock_ctx:
+            mock_ctx.return_value.list_devices.return_value = []
+            service.run_once()
+
+        all_logs = ' '.join(log_messages)
+        self.assertIn("DISCONNECTED", all_logs)
+        self.assertIn("ORPHAN_SERIAL", all_logs)
+
+
 if __name__ == '__main__':
     unittest.main()
-
-
-

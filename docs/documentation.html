@@ -187,12 +187,14 @@
 
         .file-tree {
             background: var(--bg-color);
-            padding: 1rem;
+            padding: 1rem 1.5rem;
             border-radius: 8px;
             font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
             font-size: 0.875rem;
             line-height: 1.8;
             border: 1px solid var(--border-color);
+            white-space: pre;
+            overflow-x: auto;
         }
 
         .note {
@@ -376,6 +378,11 @@ sudo locker add-service cron</code></pre>
                             <td>Yes</td>
                         </tr>
                         <tr>
+                            <td><code>locker get-status</code></td>
+                            <td>Show current mode, device connection status, and managed services</td>
+                            <td>No</td>
+                        </tr>
+                        <tr>
                             <td><code>locker logs [-n N] [-f]</code></td>
                             <td>Show audit log (last N lines, default 50). Use <code>-f</code> to follow in real time</td>
                             <td>No</td>
@@ -505,6 +512,7 @@ sudo systemctl restart locker</code></pre>
                 <h2>Makefile Targets</h2>
                 <p>The project includes a Makefile for common operations:</p>
                 <pre><code>make help       # Show all available targets
+make help-web   # Serve the HTML docs on http://localhost:8888
 make test       # Run the full unit test suite
 make build      # Build the .deb package
 make install    # Build and install the .deb package
@@ -524,7 +532,7 @@ sudo apt-get install -y build-essential debhelper dh-python \
 make build
 
 # Or directly
-sudo scripts/build-deb.sh</code></pre>
+scripts/build-deb.sh</code></pre>
                 <p>This will:</p>
                 <ul>
                     <li>Check for required build dependencies</li>
@@ -607,36 +615,34 @@ lockerd --help</code></pre>
                 </ul>
 
                 <h2>Project Structure</h2>
-                <div class="file-tree">
-locker/
-&#x251C;&#x2500;&#x2500; src/
-&#x2502;   &#x2514;&#x2500;&#x2500; locker/                # Python package source
-&#x2502;       &#x251C;&#x2500;&#x2500; __init__.py
-&#x2502;       &#x251C;&#x2500;&#x2500; service.py             # Daemon: monitoring, locking, unlocking
-&#x2502;       &#x251C;&#x2500;&#x2500; cli.py                 # CLI: all user-facing commands
-&#x2502;       &#x251C;&#x2500;&#x2500; config.py              # Configuration: load, validate, save
-&#x2502;       &#x2514;&#x2500;&#x2500; utils.py               # Utilities: device detection, service control
-&#x251C;&#x2500;&#x2500; config/
-&#x2502;   &#x251C;&#x2500;&#x2500; config.json                # Default configuration template
-&#x2502;   &#x251C;&#x2500;&#x2500; locker.service             # Systemd service unit
-&#x2502;   &#x2514;&#x2500;&#x2500; connect_android_serials.json  # Mock device template (for testing)
-&#x251C;&#x2500;&#x2500; debian/                        # Debian packaging metadata
-&#x2502;   &#x251C;&#x2500;&#x2500; control                    #   Package metadata and dependencies
-&#x2502;   &#x251C;&#x2500;&#x2500; rules                      #   Build rules (pybuild + custom install)
-&#x2502;   &#x251C;&#x2500;&#x2500; postinst                   #   Post-install script (service setup, log file)
-&#x2502;   &#x2514;&#x2500;&#x2500; ...
-&#x251C;&#x2500;&#x2500; tests/                         # Unit tests
-&#x2502;   &#x251C;&#x2500;&#x2500; test_config.py
-&#x2502;   &#x251C;&#x2500;&#x2500; test_lock_cli.py
-&#x2502;   &#x251C;&#x2500;&#x2500; test_lock_service.py
-&#x2502;   &#x2514;&#x2500;&#x2500; test_coverage.py
-&#x251C;&#x2500;&#x2500; scripts/
-&#x2502;   &#x2514;&#x2500;&#x2500; build-deb.sh               # Build script for the .deb package
-&#x251C;&#x2500;&#x2500; docs/
-&#x2502;   &#x2514;&#x2500;&#x2500; documentation.html         # This documentation
-&#x251C;&#x2500;&#x2500; Makefile                       # Build, test, install, demo targets
-&#x2514;&#x2500;&#x2500; pyproject.toml                 # Python package configuration (hatchling)
-                </div>
+                <div class="file-tree">locker/
+├── src/
+│   └── locker/                  <span style="color:#64748b"># Python package source</span>
+│       ├── __init__.py
+│       ├── service.py           <span style="color:#64748b"># Daemon: monitoring, locking, unlocking</span>
+│       ├── cli.py               <span style="color:#64748b"># CLI: all user-facing commands</span>
+│       ├── config.py            <span style="color:#64748b"># Configuration: load, validate, save</span>
+│       └── utils.py             <span style="color:#64748b"># Utilities: device detection, service control</span>
+├── config/
+│   ├── config.json              <span style="color:#64748b"># Default configuration template</span>
+│   ├── locker.service           <span style="color:#64748b"># Systemd service unit</span>
+│   └── connect_android_serials.json  <span style="color:#64748b"># Mock device template (for testing)</span>
+├── debian/                      <span style="color:#64748b"># Debian packaging metadata</span>
+│   ├── control                  <span style="color:#64748b"># Package metadata and dependencies</span>
+│   ├── rules                    <span style="color:#64748b"># Build rules (pybuild + custom install)</span>
+│   ├── postinst                 <span style="color:#64748b"># Post-install script (service setup)</span>
+│   └── ...
+├── tests/                       <span style="color:#64748b"># Unit tests</span>
+│   ├── test_config.py
+│   ├── test_lock_cli.py
+│   ├── test_lock_service.py
+│   └── test_coverage.py
+├── scripts/
+│   └── build-deb.sh             <span style="color:#64748b"># Build script for the .deb package</span>
+├── docs/
+│   └── documentation.html       <span style="color:#64748b"># This documentation</span>
+├── Makefile                     <span style="color:#64748b"># Build, test, install, demo targets</span>
+└── pyproject.toml               <span style="color:#64748b"># Python package config (hatchling)</span></div>
 
                 <h2>Key Design Decisions</h2>
 
@@ -650,11 +656,38 @@ locker/
                    log file at <code>/var/log/locker.log</code>. The file is created with <code>666</code> permissions so
                    both root (service) and non-root (CLI) processes can write to it. This provides a unified audit trail.</p>
 
-                <h3>Connected Serials File</h3>
-                <p>The file <code>/etc/locker/connect_android_serials.json</code> allows simulating a connected device for testing
-                   and demos. When no real USB device is detected, the service checks this file as a fallback. If it exists,
-                   is valid JSON, contains an <code>android_serial</code> key, and the value matches the configured serial,
-                   the device is treated as connected.</p>
+                <h3>Mock Device File (Connected Serials)</h3>
+                <p>The file <code>/etc/locker/connect_android_serials.json</code> simulates a connected Android device
+                   for testing and customer demos. Both the CLI and the service daemon check this file.</p>
+                <p><strong>How it works:</strong></p>
+                <ul>
+                    <li>If the file exists and contains an <code>android_serial</code> key with any non-empty string value, the device is treated as <strong>connected</strong></li>
+                    <li>If the file does not exist, no mock device is present (device is <strong>disconnected</strong>)</li>
+                    <li>The mock serial is used as a <strong>fallback</strong> everywhere &mdash; if no serial is configured via <code>set-android-serial</code>,
+                        the service and CLI will automatically use the mock file's serial. This means you can run the full demo
+                        flow (including <code>set-mode enforcing</code>) without ever calling <code>set-android-serial</code></li>
+                    <li>If a serial <em>is</em> configured via <code>set-android-serial</code>, it takes priority over the mock file's serial</li>
+                </ul>
+                <p><strong>Affected commands:</strong></p>
+                <ul>
+                    <li><code>locker list-devices</code> &mdash; shows the mock device in the list</li>
+                    <li><code>locker get-android-serial</code> &mdash; displays the mock serial (if no config serial is set)</li>
+                    <li><code>locker get-status</code> &mdash; shows the mock serial as the configured device</li>
+                    <li><code>locker set-mode enforcing</code> &mdash; allowed when the mock file provides a serial</li>
+                    <li><code>lockerd</code> (service daemon) &mdash; monitors the mock serial for connect/disconnect</li>
+                </ul>
+                <p><strong>How to create it:</strong></p>
+                <pre><code># Create the mock device file (simulates device connection)
+sudo bash -c 'echo '\''{"android_serial": "your_serial_here"}'\'' > /etc/locker/connect_android_serials.json'
+
+# Verify it appears
+locker list-devices
+locker get-android-serial
+
+# Remove it (simulates device disconnection)
+sudo rm /etc/locker/connect_android_serials.json</code></pre>
+                <p><strong>Note:</strong> This file is <em>not</em> shipped with the .deb package. It is created manually
+                   for demos and testing only.</p>
 
                 <h3>Systemd Integration</h3>
                 <p>The service runs as a <code>Type=notify</code> systemd unit. It sends <code>READY=1</code> via the
@@ -662,22 +695,31 @@ locker/
                    with systemd &mdash; systemd manages the process lifecycle directly.</p>
 
                 <h2>End-to-End Demo</h2>
-                <p>The Makefile includes an interactive demo that walks through the full workflow:</p>
-                <pre><code>make demo</code></pre>
-                <p>The demo:</p>
-                <ul>
-                    <li>Verifies the service is running</li>
-                    <li>Clears existing configuration</li>
-                    <li>Adds <code>cron</code> and <code>ssh</code> as managed services</li>
-                    <li>Configures a mock device serial</li>
-                    <li>Creates the connected serials file (simulates device connection)</li>
-                    <li>Switches to enforcing mode and shows services are running</li>
-                    <li>Removes the file (simulates disconnection) and shows services stop</li>
-                    <li>Demonstrates that manually starting services fails (Locker stops them again)</li>
-                    <li>Reconnects the device and shows services recover</li>
-                    <li>Displays the audit log</li>
-                    <li>Cleans up and restores permissive mode</li>
-                </ul>
+                <p>A standalone demo Makefile is included (<code>Makefile.demo</code>). After installing the .deb package, run:</p>
+                <pre><code># From the project root:
+make demo
+
+# Or directly after installation, from anywhere:
+make -f /usr/share/locker/Makefile.demo</code></pre>
+                <p>The demo follows a 16-step flow:</p>
+                <ol>
+                    <li>Verify the service is running</li>
+                    <li>Check the audit log</li>
+                    <li>List devices (empty &mdash; no device connected)</li>
+                    <li>List services (ssh is pre-configured)</li>
+                    <li>Check status (permissive mode)</li>
+                    <li>Create mock device file (simulate connection)</li>
+                    <li>List devices again (mock device appears)</li>
+                    <li>Check configured serial (not yet set)</li>
+                    <li>Set the android serial to match the mock</li>
+                    <li>Check logs &mdash; service sees device as CONNECTED</li>
+                    <li>Delete mock file &mdash; logs say "would have stopped" (permissive)</li>
+                    <li>Verify ssh is still running (permissive = no enforcement)</li>
+                    <li>Switch to enforcing mode</li>
+                    <li>Verify ssh is STOPPED (enforcing + device disconnected)</li>
+                    <li>Recreate mock file (reconnect device)</li>
+                    <li>Verify ssh is RUNNING again (device connected)</li>
+                </ol>
                 <p>Each step requires ENTER to advance, and every <code>sudo</code> command asks for explicit approval.</p>
             </div>
         </div>

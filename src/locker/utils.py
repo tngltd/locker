@@ -3,14 +3,54 @@
 Utility functions for the locker service
 """
 
+import os
+import json
 import subprocess
 import logging
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import pyudev
 
 
 # Android vendor IDs for device detection
 ANDROID_VENDOR_IDS = ['2717', '18d1', '0bb4', '04e8', '24e3', '0955', '201e', '0e79', '04c5', '2a47']
+
+# Connected serials file path
+CONNECTED_SERIALS_FILE = "connect_android_serials.json"
+CONNECTED_SERIALS_DIR = "/etc/locker"
+
+
+def get_mock_device(config_dir: Optional[str] = None, logger: Optional[logging.Logger] = None) -> Optional[Tuple[str, str]]:
+    """Read the connected serials file and return the mock device if present.
+    
+    If /etc/locker/connect_android_serials.json exists, is valid JSON,
+    and contains an 'android_serial' key with a non-empty value,
+    returns (serial, 'Mock Device'). Otherwise returns None.
+    
+    Args:
+        config_dir: Directory containing the file (default: /etc/locker)
+        logger: Optional logger
+    
+    Returns:
+        Tuple of (serial, model) or None
+    """
+    directory = config_dir or CONNECTED_SERIALS_DIR
+    mock_path = os.path.join(directory, CONNECTED_SERIALS_FILE)
+    
+    try:
+        if not os.path.exists(mock_path):
+            return None
+        
+        with open(mock_path, 'r') as f:
+            data = json.load(f)
+        
+        serial = data.get('android_serial')
+        if serial and isinstance(serial, str) and serial.strip():
+            return (serial.strip(), 'Mock Device')
+        return None
+    except (json.JSONDecodeError, OSError, TypeError) as e:
+        if logger:
+            logger.debug(f"Mock device file check failed: {e}")
+        return None
 
 
 def is_service_running(service_name: str, logger: Optional[logging.Logger] = None, log_check: bool = False) -> bool:
@@ -94,11 +134,15 @@ def start_service(service_name: str, logger: Optional[logging.Logger] = None) ->
         return False
 
 
-def get_connected_devices(logger: Optional[logging.Logger] = None) -> List[tuple]:
-    """Get list of connected Android devices (serial, model) using pyudev
+def get_connected_devices(logger: Optional[logging.Logger] = None, config_dir: Optional[str] = None) -> List[tuple]:
+    """Get list of connected Android devices (serial, model) using pyudev.
+    
+    Also checks for a mock device file at /etc/locker/connect_android_serials.json.
+    If the file exists and has a valid serial, it is included in the results.
     
     Args:
         logger: Optional logger for logging errors
+        config_dir: Directory containing the mock device file (default: /etc/locker)
     
     Returns:
         List of tuples containing (serial, model) for each connected Android device
@@ -111,54 +155,56 @@ def get_connected_devices(logger: Optional[logging.Logger] = None) -> List[tuple
     except Exception as e:
         if logger:
             logger.warning(f"Failed to create pyudev context: {e}")
-        return []
+        # Don't return yet — still check the mock file below
+        context = None
 
-    try:
-        device_list = context.list_devices(subsystem='usb')
-    except Exception as e:
-        if logger:
-            logger.warning(f"Failed to list USB devices: {e}")
-        return []
+    if context is not None:
+        try:
+            device_list = context.list_devices(subsystem='usb')
+        except Exception as e:
+            if logger:
+                logger.warning(f"Failed to list USB devices: {e}")
+            device_list = []
 
-    for device in device_list:
-        interfaces = device.get('ID_USB_INTERFACES', '')
-        vendor_id = device.get('ID_VENDOR_ID', '').lower()
-        serial = device.get('ID_SERIAL_SHORT') or device.get('ID_SERIAL')
-        
-        # Skip devices without serials
-        if not serial:
-            continue
-        
-        # Check if this looks like an Android device
-        is_android = False
-        
-        # Method 1: Check vendor ID (most reliable)
-        if vendor_id in ANDROID_VENDOR_IDS:
-            is_android = True
-        
-        # Method 2: Check for Android Debug Bridge interface class (0xff) - but only if we have a valid serial
-        # This is less reliable but helps catch devices that might not be in vendor list
-        if not is_android and ':' in interfaces:
-            interface_parts = interfaces.split(':')
-            if len(interface_parts) >= 1:
-                interface_class = interface_parts[0]
-                # Android devices use vendor-specific class 0xff (255) for debugging interface
-                if interface_class.lower() == 'ff' or interface_class == '255':
-                    # Additional check: serial should look like an Android serial
+        for device in device_list:
+            interfaces = device.get('ID_USB_INTERFACES', '')
+            vendor_id = device.get('ID_VENDOR_ID', '').lower()
+            serial = device.get('ID_SERIAL_SHORT') or device.get('ID_SERIAL')
+            
+            # Skip devices without serials
+            if not serial:
+                continue
+            
+            # Check if this looks like an Android device
+            is_android = False
+            
+            # Method 1: Check vendor ID (most reliable)
+            if vendor_id in ANDROID_VENDOR_IDS:
+                is_android = True
+            
+            # Method 2: Check for Android Debug Bridge interface class (0xff)
+            if not is_android and ':' in interfaces:
+                interface_parts = interfaces.split(':')
+                if len(interface_parts) >= 1:
+                    interface_class = interface_parts[0]
+                    if interface_class.lower() == 'ff' or interface_class == '255':
+                        if len(serial) >= 8 and serial.replace('_', '').replace('-', '').isalnum():
+                            is_android = True
+            
+            if is_android:
+                if serial not in seen_serials:
                     if len(serial) >= 8 and serial.replace('_', '').replace('-', '').isalnum():
-                        is_android = True
-        
-        if is_android:
-            if serial not in seen_serials:
-                # Additional validation: Android serials are typically alphanumeric
-                # Skip PCI addresses and other non-Android identifiers
-                if len(serial) >= 8 and serial.replace('_', '').replace('-', '').isalnum():
-                    # Skip PCI-style addresses (e.g., "0000:01:02.0")
-                    if ':' not in serial or not serial.startswith('0000:'):
-                        model = device.get('ID_MODEL', 'Unknown')
-                        model = model.replace('_', ' ').title()
-                        devices.append((serial, model))
-                        seen_serials.add(serial)
+                        if ':' not in serial or not serial.startswith('0000:'):
+                            model = device.get('ID_MODEL', 'Unknown')
+                            model = model.replace('_', ' ').title()
+                            devices.append((serial, model))
+                            seen_serials.add(serial)
+
+    # Also check the mock device file
+    mock_device = get_mock_device(config_dir=config_dir, logger=logger)
+    if mock_device and mock_device[0] not in seen_serials:
+        devices.append(mock_device)
+        seen_serials.add(mock_device[0])
 
     return devices
 

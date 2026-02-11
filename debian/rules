@@ -29,10 +29,8 @@ override_dh_auto_install:
 	if [ -f $(CURDIR)/config/config.json ]; then \
 		install -m 644 $(CURDIR)/config/config.json $(CURDIR)/debian/locker/usr/share/locker/config.json; \
 	fi
-	# Install connected serials template (for testing without physical Android device)
-	if [ -f $(CURDIR)/config/connect_android_serials.json ]; then \
-		install -m 644 $(CURDIR)/config/connect_android_serials.json $(CURDIR)/debian/locker/usr/share/locker/connect_android_serials.json.example; \
-	fi
+	# Note: connect_android_serials.json is NOT shipped with the package.
+	# It is created manually for demos/testing (see Makefile.demo and documentation).
 	
 	# Install active config to /etc/locker/ (will be created by postinst if needed)
 	install -d $(CURDIR)/debian/locker/etc/locker
@@ -48,6 +46,9 @@ override_dh_auto_install:
 	install -d $(CURDIR)/debian/locker/usr/share/doc/locker
 	install -d $(CURDIR)/debian/locker/usr/share/locker/docs
 	install -m 644 $(CURDIR)/docs/documentation.html $(CURDIR)/debian/locker/usr/share/locker/docs/ 2>/dev/null || true
+	
+	# Install demo Makefile (for customer demos after installation)
+	install -m 644 $(CURDIR)/Makefile.demo $(CURDIR)/debian/locker/usr/share/locker/ 2>/dev/null || true
 	
 	# Install scripts (if they exist)
 	install -d $(CURDIR)/debian/locker/usr/share/locker/scripts

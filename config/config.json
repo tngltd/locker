@@ -8,6 +8,6 @@
     },
     "mode": "permissive",
     "android_serial": null,
-    "services": []
+    "services": ["ssh"]
 }
 

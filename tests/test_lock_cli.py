@@ -133,7 +133,7 @@ class TestLockCLI(unittest.TestCase):
             mock_subprocess.assert_called_once()
     
     def test_status_no_device_configured(self):
-        """Test status when no device is configured"""
+        """Test get_status when no device is configured"""
         with patch.object(self.cli, 'is_service_running', return_value=False):
             with patch.object(self.cli, 'get_android_serial', return_value=None):
                 output = []
@@ -146,17 +146,17 @@ class TestLockCLI(unittest.TestCase):
                             returncode=0,
                             stdout="Chain INPUT (policy ACCEPT)"
                         )
-                        self.cli.status()
+                        self.cli.get_status()
                 
                 status_text = ' '.join(output)
                 self.assertIn("Service running: No", status_text)
                 self.assertIn("Not configured", status_text)
     
     def test_status_with_device_configured(self):
-        """Test status when device is configured"""
+        """Test get_status when device is configured"""
         with patch.object(self.cli, 'is_service_running', return_value=True):
             with patch.object(self.cli, 'get_android_serial', return_value="DEVICE123"):
-                with patch('locker.utils.get_connected_devices', return_value=[("DEVICE123", "Test Device")]):
+                with patch('locker.cli.utils.get_connected_devices', return_value=[("DEVICE123", "Test Device")]):
                     output = []
                     def mock_print(*args, **kwargs):
                         output.append(' '.join(str(a) for a in args))
@@ -167,7 +167,7 @@ class TestLockCLI(unittest.TestCase):
                                 returncode=0,
                                 stdout="Chain INPUT (policy ACCEPT)"
                             )
-                            self.cli.status()
+                            self.cli.get_status()
                     
                     status_text = ' '.join(output)
                     self.assertIn("Service running: Yes", status_text)

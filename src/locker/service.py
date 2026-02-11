@@ -5,7 +5,6 @@ A security service for Ubuntu systems to lock down devices when the configured A
 """
 
 import os
-import json
 import socket
 import time
 import signal
@@ -18,10 +17,8 @@ import argparse
 from locker import utils
 from locker import config
 
-# Connected Android serials file - when this file exists and contains a matching
-# serial, the service treats it as if a real device is connected. Useful for
-# testing/demos without physical hardware.
-CONNECTED_SERIALS_FILE = "connect_android_serials.json"
+# Re-export from utils for backward compatibility
+CONNECTED_SERIALS_FILE = utils.CONNECTED_SERIALS_FILE
 
 
 def _notify_systemd_ready() -> bool:
@@ -173,11 +170,11 @@ class LockService:
                 self.logger.info(f"Service {service} is already stopped - skipping")
                 continue
 
-            self.logger.info(f"Service {service} is running - {'would be' if not enforcing else ''} stopping it ({mode_str})")
-            
             if not enforcing:
+                self.logger.info(f"Service {service} is running — would have stopped it (permissive mode, no action taken)")
                 continue
 
+            self.logger.info(f"Service {service} is running — stopping it (enforcing mode)")
             utils.stop_service(service, logger=self.logger)
     
         self.logger.info(f"System locked successfully (mode: {mode_str})")
@@ -203,82 +200,49 @@ class LockService:
                 self.logger.info(f"Service {service} is already running - skipping")
                 continue
 
-            self.logger.info(f"Service {service} is not running - {'would be' if not enforcing else ''} starting it ({mode_str})")
-            
             if not enforcing:
+                self.logger.info(f"Service {service} is not running — would have started it (permissive mode, no action taken)")
                 continue
 
+            self.logger.info(f"Service {service} is not running — starting it (enforcing mode)")
             utils.start_service(service, logger=self.logger)
     
         self.logger.info(f"System unlocked successfully (mode: {mode_str})")
     
-    def _get_connected_serials_path(self) -> str:
-        """Get the path to the connected serials file (lives alongside config.json)"""
-        return os.path.join(self.config_dir, CONNECTED_SERIALS_FILE)
-    
-    def _check_connected_serials_file(self, android_serial: str) -> bool:
-        """Check if the connected serials file exists and matches the configured serial.
+    def get_effective_serial(self) -> Optional[str]:
+        """Get the effective Android serial — config first, then mock device file.
         
-        The file /etc/locker/connect_android_serials.json allows simulating a
-        connected Android device for testing without physical hardware. The file must:
-          1. Exist in the config directory (/etc/locker/connect_android_serials.json)
-          2. Be valid JSON
-          3. Contain an 'android_serial' key
-          4. Have a value that matches the configured android_serial
-        
-        Args:
-            android_serial: The configured serial to match against.
-            
         Returns:
-            True if file exists and serial matches, False otherwise.
+            The serial string, or None if neither source has a serial.
         """
-        mock_path = self._get_connected_serials_path()
+        serial = self.config.get('android_serial')
+        if serial:
+            return serial
         
-        try:
-            if not os.path.exists(mock_path):
-                return False
-            
-            with open(mock_path, 'r') as f:
-                mock_data = json.load(f)
-            
-            mock_serial = mock_data.get('android_serial')
-            if mock_serial and mock_serial == android_serial:
-                self.logger.info(f"Mock device file found at {mock_path} - serial matches: {mock_serial}")
-                return True
-            else:
-                self.logger.debug(f"Mock device file found but serial mismatch: "
-                                  f"mock='{mock_serial}' vs configured='{android_serial}'")
-                return False
-        except (json.JSONDecodeError, OSError, TypeError, KeyError) as e:
-            self.logger.debug(f"Mock device file check failed: {e}")
-            return False
+        # Fall back to mock device file
+        mock_device = utils.get_mock_device(config_dir=self.config_dir, logger=self.logger)
+        if mock_device:
+            return mock_device[0]
+        
+        return None
     
     def is_configured_device_connected(self) -> bool:
         """Check if the configured Android device is connected.
         
-        First checks for a real USB-connected device. If not found, falls back
-        to checking connect_android_serials.json for testing/development.
+        Uses utils.get_connected_devices() which checks both real USB devices
+        and the mock device file (connect_android_serials.json). If the effective
+        serial (from config or mock file) appears in the list of connected devices,
+        the device is considered connected.
         """
-        android_serial = self.config['android_serial']
+        android_serial = self.get_effective_serial()
         if not android_serial:
             return False
         
-        # Check real USB devices first
-        devices = utils.get_connected_devices(logger=self.logger)
+        # get_connected_devices now includes mock devices from the file
+        devices = utils.get_connected_devices(logger=self.logger, config_dir=self.config_dir)
         connected_serials = [d[0] for d in devices]
-        is_connected = android_serial in connected_serials
         
-        if is_connected:
-            self.logger.info(f"Android device {android_serial} is connected (USB)")
-            return True
-        
-        # Fallback: check connected serials file
-        if self._check_connected_serials_file(android_serial):
-            self.logger.info(f"Android device {android_serial} is connected (via {CONNECTED_SERIALS_FILE})")
-            return True
-        
-        self.logger.info(f"Android device {android_serial} is NOT connected")
-        return False
+        return android_serial in connected_serials
     
     def signal_handler(self, signum, frame):
         """Handle shutdown signals"""
@@ -299,29 +263,34 @@ class LockService:
             config.validate_config(self.config)
         
         # Extract config values
-        android_serial = self.config['android_serial']
         mode = self.config['mode']
         services = self.config['services']
         enforcing = (mode == 'enforcing')
         
+        # Get effective serial (config takes priority, then mock file)
+        android_serial = self.get_effective_serial()
+        
         self.logger.info("Monitor loop iteration started")
         try:
-            # Phase 2: Get android_serial from config and check if device is connected
+            # Phase 2: Check if device is connected using effective serial
             is_connected = False
             if android_serial and len(android_serial) > 0:
-                self.logger.info(f"Android device configured: {android_serial}")
+                source = "config" if self.config.get('android_serial') else "mock device file"
+                self.logger.info(f"Android device configured: {android_serial} (source: {source})")
                 is_connected = self.is_configured_device_connected()
-                device_status = "CONNECTED" if is_connected else "DISCONNECTED"
-                self.logger.info(f"Device {android_serial} connection status: {device_status}")
+                if is_connected:
+                    self.logger.info(f">>> Device {android_serial} is CONNECTED <<<")
+                else:
+                    self.logger.warning(f">>> Device {android_serial} is DISCONNECTED <<<")
             else:
                 self.logger.info("No Android device configured")
             
             # Phase 3: If connected, unlock - otherwise lock. Pass enforcing bool.
             if is_connected:
-                self.logger.info(f"Device connected - unlocking system (mode: {mode})")
+                self.logger.info(f"Device CONNECTED — unlocking system (mode: {mode})")
                 self.unlock_system(services, enforcing)
             else:
-                self.logger.info(f"Device disconnected - locking system (mode: {mode})")
+                self.logger.info(f"Device DISCONNECTED — locking system (mode: {mode})")
                 self.lock_system(services, enforcing)
             
         except Exception as e:
