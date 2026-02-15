@@ -18,6 +18,8 @@
             --inline-code-bg: #f1f5f9;
             --success-color: #22c55e;
             --warning-color: #f59e0b;
+            --danger-color: #ef4444;
+            --teal-color: #14b8a6;
         }
 
         * {
@@ -185,12 +187,14 @@
 
         .file-tree {
             background: var(--bg-color);
-            padding: 1rem;
+            padding: 1rem 1.5rem;
             border-radius: 8px;
             font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
             font-size: 0.875rem;
             line-height: 1.8;
             border: 1px solid var(--border-color);
+            white-space: pre;
+            overflow-x: auto;
         }
 
         .note {
@@ -203,6 +207,30 @@
 
         .note strong {
             color: #92400e;
+        }
+
+        .note-info {
+            background: #dbeafe;
+            border-left: 4px solid var(--primary-color);
+            padding: 1rem;
+            border-radius: 0 8px 8px 0;
+            margin: 1rem 0;
+        }
+
+        .note-info strong {
+            color: #1e40af;
+        }
+
+        .note-success {
+            background: #dcfce7;
+            border-left: 4px solid var(--success-color);
+            padding: 1rem;
+            border-radius: 0 8px 8px 0;
+            margin: 1rem 0;
+        }
+
+        .note-success strong {
+            color: #166534;
         }
 
         .footer {
@@ -238,213 +266,176 @@
 </head>
 <body>
     <div class="header">
-        <h1>🔒 Lock-Down Service</h1>
-        <p>Security service for Ubuntu systems - Documentation</p>
+        <h1>Lock-Down Service</h1>
+        <p>Android-based service lockdown for Ubuntu systems</p>
     </div>
 
     <div class="container">
         <div class="tabs">
-            <button class="tab-button active" onclick="openTab(event, 'developer')">👨‍💻 Developer</button>
-            <button class="tab-button" onclick="openTab(event, 'user')">👤 User</button>
-        </div>
-
-        <!-- Developer Tab -->
-        <div id="developer" class="tab-content active">
-            <div class="content">
-                <h1>Developer Guide</h1>
-                <p>This guide explains how to build the Debian package for locker.</p>
-
-                <h2>Building the Package</h2>
-                <p>The package can be built on Ubuntu using the build script.</p>
-
-                <h3>Prerequisites</h3>
-                <p>Install the required build dependencies:</p>
-                <pre><code>sudo apt-get update
-sudo apt-get install -y build-essential debhelper dh-python python3-all python3-setuptools python3-pip pybuild-plugin-pyproject python3-hatchling</code></pre>
-
-                <h3>Build Steps</h3>
-                <pre><code>./scripts/build-deb.sh</code></pre>
-                <p>This will:</p>
-                <ul>
-                    <li>Check for required build dependencies</li>
-                    <li>Clean previous build artifacts</li>
-                    <li>Build the Debian package using <code>dpkg-buildpackage</code></li>
-                    <li>Output <code>locker_1.0.0-1_all.deb</code> in your project directory</li>
-                </ul>
-
-                <h3>Package Structure</h3>
-                <p>The Debian package includes:</p>
-                <ul>
-                    <li><code>/usr/bin/lockerd</code> - Service daemon entry point (installed by Python package)</li>
-                    <li><code>/usr/bin/locker</code> - CLI management tool entry point (installed by Python package)</li>
-                    <li><code>/usr/lib/python3/dist-packages/locker/</code> - Python package source code</li>
-                    <li><code>/etc/locker/config.json</code> - Configuration file</li>
-                    <li><code>/etc/systemd/system/locker.service</code> - Systemd service file</li>
-                    <li><code>/usr/share/locker/</code> - Scripts and documentation</li>
-                </ul>
-
-                <h3>Dependencies</h3>
-                <p>The package automatically installs:</p>
-                <ul>
-                    <li><code>python3</code></li>
-                    <li><code>python3-daemon</code></li>
-                    <li><code>python3-psutil</code></li>
-                    <li><code>python3-pyudev</code></li>
-                    <li><code>systemd</code></li>
-                </ul>
-
-                <h3>Local Development</h3>
-                <p>For local development, install the package in development mode:</p>
-                <pre><code># From project root
-pip install -e .
-
-# Then use the commands directly
-locker --help
-lockerd --help</code></pre>
-
-                <h3>Project Structure</h3>
-                <div class="file-tree">
-locker/
-├── src/
-│   └── locker/       # Python package source
-│       ├── __init__.py
-│       ├── service.py      # Main daemon
-│       └── cli.py          # Command line tool
-├── config/
-│   ├── config.json         # Default configuration
-│   └── locker.service # Systemd service file
-├── debian/                 # Debian package metadata
-│   ├── control
-│   ├── rules
-│   ├── postinst
-│   └── ...
-├── scripts/
-│   └── build-deb.sh        # Build package on Ubuntu
-├── tests/                  # Unit tests
-├── pyproject.toml          # Python package configuration
-└── docs/
-    └── documentation.html  # This file
-                </div>
-            </div>
+            <button class="tab-button active" onclick="openTab(event, 'user')">User Guide</button>
+            <button class="tab-button" onclick="openTab(event, 'developer')">Developer Guide</button>
+            <button class="tab-button" onclick="openTab(event, 'architecture')">Architecture</button>
         </div>
 
         <!-- User Tab -->
-        <div id="user" class="tab-content">
+        <div id="user" class="tab-content active">
             <div class="content">
                 <h1>User Guide</h1>
-                <p>This guide explains how to install and configure locker on your Ubuntu system.</p>
+                <p>Locker protects your Ubuntu server by tying service availability to a physical Android device.
+                   When your device is connected, services run normally. When it's disconnected, Locker stops
+                   the configured services &mdash; and keeps them stopped, even if someone tries to restart them manually.</p>
 
                 <h2>Installation</h2>
-                <h3>1. Install the Package</h3>
+                <h3>Install from .deb Package</h3>
                 <pre><code>sudo apt install -y ./locker_1.0.0-1_all.deb</code></pre>
-                <p>Or if the package is in a different location:</p>
-                <pre><code>sudo mv locker_1.0.0-1_all.deb /tmp/
-sudo apt install -y /tmp/locker_1.0.0-1_all.deb</code></pre>
+                <p>After installation the service starts automatically in <strong>permissive mode</strong> (monitoring only, no enforcement).</p>
 
-                <h3>2. Verify Installation</h3>
-                <pre><code># Check if package is installed
+                <h3>Verify Installation</h3>
+                <pre><code># Check if the package is installed
 dpkg -l | grep locker
+
+# Verify the service is running
+sudo systemctl status locker
 
 # Test the CLI
 locker --help</code></pre>
 
-                <h2>Configuration</h2>
-                <p>After installation, the service starts in <strong>permissive mode</strong>, which means it won't lock the system even if the device is disconnected.</p>
+                <h2>Quick Start</h2>
+                <p>Four steps to protect your services:</p>
 
-                <h3>Step 1: List Connected Devices</h3>
-                <p>Connect your Android device via USB and list all connected devices:</p>
+                <h3>Step 1: Connect and Identify Your Android Device</h3>
+                <p>Connect your Android device via USB (with USB debugging enabled) and list connected devices:</p>
                 <pre><code>locker list-devices</code></pre>
-                <p>This will show all connected Android devices with their serial numbers.</p>
+                <p>Then set the device serial:</p>
+                <pre><code># Auto-detect from connected devices
+sudo locker set-android-serial
 
-                <h3>Step 2: Configure Android Serial</h3>
-                <p>Set the Android device serial that will control the lock:</p>
-                <pre><code># Option 1: Select from connected devices
-locker set-android-serial
-
-# Option 2: Set serial directly
-locker set-android-serial ABC123XYZ</code></pre>
-                <p>After configuration, verify the serial is set:</p>
+# Or set a specific serial directly
+sudo locker set-android-serial ABC123XYZ</code></pre>
+                <p>Verify it's configured:</p>
                 <pre><code>locker get-android-serial</code></pre>
 
-                <h3>Step 3: Add Services to Control</h3>
-                <p>Configure which services should be managed (started on connection, stopped on disconnection):</p>
-                <pre><code># Add services to be managed
-locker add-service ssh
-locker add-service nginx
-locker add-service mysql</code></pre>
+                <h3>Step 2: Add Services to Protect</h3>
+                <p>Tell Locker which services to manage. These will be stopped when the device is disconnected and started when it reconnects:</p>
+                <pre><code>sudo locker add-service ssh
+sudo locker add-service nginx
+sudo locker add-service cron</code></pre>
+                <p>View configured services and their current status:</p>
+                <pre><code>locker list-services</code></pre>
 
-                <h3>Step 4: Switch to Enforcing Mode</h3>
-                <p>Once configuration is complete, switch to enforcing mode. <strong>Warning:</strong> In enforcing mode, the system will lock if the configured Android device is not connected.</p>
-                <pre><code>locker set-mode enforcing</code></pre>
+                <h3>Step 3: Switch to Enforcing Mode</h3>
                 <div class="note">
-                    <strong>Important:</strong> Make sure your Android device is connected before switching to enforcing mode, otherwise the system will lock immediately.
+                    <strong>Important:</strong> Make sure your Android device is connected before switching to enforcing mode, otherwise Locker will immediately stop the configured services.
                 </div>
+                <pre><code>sudo locker set-mode enforcing</code></pre>
 
-                <h2>Modes</h2>
-                <h3>Permissive Mode</h3>
-                <ul>
-                    <li>System will <strong>not</strong> lock even if device is disconnected</li>
-                    <li>Safe for configuration and testing</li>
-                    <li>Default mode after installation</li>
-                </ul>
+                <h3>Step 4: Verify</h3>
+                <p>Disconnect your Android device and watch the configured services stop. Reconnect it and they start again.</p>
 
-                <h3>Enforcing Mode</h3>
-                <ul>
-                    <li>System will lock when configured Android device is disconnected</li>
-                    <li>Configured services will be stopped when locked</li>
-                    <li>System will unlock when device is connected</li>
-                    <li>Requires Android serial to be configured</li>
-                </ul>
-
-                <h2>Service Management</h2>
-                <p>Use systemctl to manage the locker:</p>
-                <pre><code># Start the service
-sudo systemctl start locker
-
-# Stop the service
-sudo systemctl stop locker
-
-# Check status
-sudo systemctl status locker
-
-# View logs
-sudo journalctl -u locker -f</code></pre>
-
-                <h2>CLI Commands</h2>
+                <h2>CLI Command Reference</h2>
                 <table>
                     <thead>
                         <tr>
                             <th>Command</th>
                             <th>Description</th>
+                            <th>Requires sudo</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr>
+                            <td><code>locker list-devices</code></td>
+                            <td>List connected Android devices with serial numbers</td>
+                            <td>No</td>
+                        </tr>
+                        <tr>
                             <td><code>locker get-android-serial</code></td>
-                            <td>Get configured Android device serial from config</td>
+                            <td>Show the currently configured Android serial</td>
+                            <td>No</td>
                         </tr>
                         <tr>
                             <td><code>locker set-android-serial [serial]</code></td>
-                            <td>Configure Android device serial</td>
+                            <td>Set the Android device serial (interactive if no serial given)</td>
+                            <td>Yes</td>
                         </tr>
                         <tr>
-                            <td><code>locker list-devices</code></td>
-                            <td>List all connected Android devices</td>
+                            <td><code>locker add-service &lt;name&gt;</code></td>
+                            <td>Add a service to be managed by Locker</td>
+                            <td>Yes</td>
                         </tr>
                         <tr>
-                            <td><code>locker add-service &lt;service&gt;</code></td>
-                            <td>Add service to be managed (started on connection, stopped on disconnection)</td>
+                            <td><code>locker remove-service &lt;name&gt;</code></td>
+                            <td>Remove a service from Locker's management</td>
+                            <td>Yes</td>
+                        </tr>
+                        <tr>
+                            <td><code>locker list-services</code></td>
+                            <td>List all managed services with their current status (RUNNING/STOPPED)</td>
+                            <td>No</td>
                         </tr>
                         <tr>
                             <td><code>locker set-mode [permissive|enforcing]</code></td>
-                            <td>Set mode (permissive or enforcing)</td>
+                            <td>Set the operating mode (interactive if no mode given)</td>
+                            <td>Yes</td>
                         </tr>
                         <tr>
-                            <td><code>locker logs [-n N]</code></td>
-                            <td>Show service logs (last N lines, default 50)</td>
+                            <td><code>locker get-status</code></td>
+                            <td>Show current mode, device connection status, and managed services</td>
+                            <td>No</td>
+                        </tr>
+                        <tr>
+                            <td><code>locker logs [-n N] [-f]</code></td>
+                            <td>Show audit log (last N lines, default 50). Use <code>-f</code> to follow in real time</td>
+                            <td>No</td>
                         </tr>
                     </tbody>
                 </table>
+
+                <h2>Modes</h2>
+                <h3>Permissive Mode (default)</h3>
+                <ul>
+                    <li>Locker monitors the device connection but does <strong>not</strong> stop or start any services</li>
+                    <li>Safe for initial configuration and testing</li>
+                    <li>All actions are logged for audit purposes</li>
+                </ul>
+
+                <h3>Enforcing Mode</h3>
+                <ul>
+                    <li>Locker <strong>actively stops</strong> managed services when the Android device is disconnected</li>
+                    <li>Locker <strong>automatically starts</strong> managed services when the device reconnects</li>
+                    <li>Services that are manually started while the device is disconnected will be stopped again on the next check cycle (every 5 seconds by default)</li>
+                    <li>Requires an Android serial to be configured</li>
+                </ul>
+
+                <h2>Audit Logging</h2>
+                <p>All operations are logged to <code>/var/log/locker.log</code>, including:</p>
+                <ul>
+                    <li>Service lock/unlock operations by the daemon</li>
+                    <li>Device connection status changes</li>
+                    <li>All CLI commands and their output</li>
+                    <li>Configuration changes</li>
+                </ul>
+                <p>View the log:</p>
+                <pre><code># Show last 50 lines
+locker logs
+
+# Show last 100 lines
+locker logs -n 100
+
+# Follow the log in real time (like tail -f)
+locker logs -f</code></pre>
+
+                <h2>Testing Without a Physical Device</h2>
+                <p>For demos or testing, you can simulate a connected device using the connected serials file.
+                   Create a JSON file at <code>/etc/locker/connect_android_serials.json</code> with the matching serial:</p>
+                <pre><code># Simulate device connection
+sudo bash -c 'echo '"'"'{"android_serial": "YOUR_SERIAL_HERE"}'"'"' > /etc/locker/connect_android_serials.json'
+
+# Simulate device disconnection
+sudo rm /etc/locker/connect_android_serials.json</code></pre>
+                <p>The service checks this file as a fallback when no real USB device is detected. If the serial in the file matches the configured serial, the device is treated as connected.</p>
+                <div class="note-info">
+                    <strong>Tip:</strong> An interactive end-to-end demo is included. Run <code>make demo</code> from the project root to see Locker in action with a simulated device.
+                </div>
 
                 <h2>Configuration File</h2>
                 <p>The configuration is stored in <code>/etc/locker/config.json</code>:</p>
@@ -460,66 +451,436 @@ sudo journalctl -u locker -f</code></pre>
   "android_serial": "ABC123XYZ",
   "services": ["ssh", "nginx"]
 }</code></pre>
+                <p>Do not edit this file directly &mdash; use the CLI commands to make changes. The service re-reads the configuration on every monitoring cycle.</p>
 
-                <h2>Uninstallation</h2>
-                <pre><code>sudo apt remove locker</code></pre>
-                <p>This will remove the package but keep configuration files in <code>/etc/locker/</code>.</p>
+                <h2>Service Management</h2>
+                <pre><code># Start the service
+sudo systemctl start locker
 
-                <h2>Troubleshooting</h2>
-                <h3>Service Not Starting</h3>
-                <pre><code># Check service status
+# Stop the service
+sudo systemctl stop locker
+
+# Restart the service
+sudo systemctl restart locker
+
+# Check status
 sudo systemctl status locker
 
-# View logs
+# View systemd journal logs
+sudo journalctl -u locker -f</code></pre>
+
+                <h2>Uninstallation</h2>
+                <pre><code>sudo systemctl stop locker
+sudo apt remove locker</code></pre>
+                <p>This removes the package, the log file, and the logrotate configuration. Configuration files in <code>/etc/locker/</code> are preserved unless you run <code>apt purge locker</code>.</p>
+
+                <h2>Troubleshooting</h2>
+
+                <h3>Service Not Starting</h3>
+                <pre><code>sudo systemctl status locker
 sudo journalctl -u locker -n 50</code></pre>
+                <p>Common causes: missing config file, invalid JSON in config, or permission issues. Try rebuilding and reinstalling with <code>make install</code>.</p>
 
                 <h3>Device Not Detected</h3>
                 <ul>
-                    <li>Ensure USB debugging is enabled on Android device</li>
-                    <li>Check if pyudev is installed: <code>python3 -c "import pyudev"</code></li>
-                    <li>Verify USB device detection: Devices are detected via udev</li>
+                    <li>Ensure USB debugging is enabled on the Android device</li>
+                    <li>Check that pyudev is installed: <code>python3 -c "import pyudev"</code></li>
+                    <li>Verify the device appears in <code>locker list-devices</code></li>
                 </ul>
 
-                <h3>Switch Back to Permissive Mode</h3>
-                <p>If you're locked out, you can switch back to permissive mode by editing the config file directly (requires physical access):</p>
+                <h3>CLI Commands Not Writing to Log</h3>
+                <p>The log file at <code>/var/log/locker.log</code> must be writable by both root (service) and your user (CLI). Check permissions:</p>
+                <pre><code>ls -la /var/log/locker.log
+# Should be -rw-rw-rw- (666)
+# Fix with:
+sudo chmod 666 /var/log/locker.log</code></pre>
+
+                <h3>Locked Out &mdash; Switch Back to Permissive</h3>
+                <p>If you're locked out and need to restore services, edit the config directly (requires physical access):</p>
                 <pre><code>sudo nano /etc/locker/config.json
 # Change "mode": "enforcing" to "mode": "permissive"
 sudo systemctl restart locker</code></pre>
             </div>
         </div>
+
+        <!-- Developer Tab -->
+        <div id="developer" class="tab-content">
+            <div class="content">
+                <h1>Developer Guide</h1>
+                <p>This guide covers building, testing, and developing the Locker project.</p>
+
+                <h2>Makefile Targets</h2>
+                <p>The project includes a Makefile for common operations:</p>
+                <pre><code>make help       # Show all available targets
+make help-web   # Serve the HTML docs on http://localhost:8888
+make test       # Run the full unit test suite
+make build      # Build the .deb package
+make install    # Build and install the .deb package
+make clean      # Stop service, uninstall, and remove build artifacts
+make demo       # Run the interactive end-to-end demo</code></pre>
+
+                <h2>Building the Package</h2>
+                <h3>Prerequisites</h3>
+                <p>Install the required build dependencies:</p>
+                <pre><code>sudo apt-get update
+sudo apt-get install -y build-essential debhelper dh-python \
+    python3-all python3-setuptools python3-pip \
+    pybuild-plugin-pyproject python3-hatchling</code></pre>
+
+                <h3>Build Steps</h3>
+                <pre><code># Using the Makefile
+make build
+
+# Or directly
+scripts/build-deb.sh</code></pre>
+                <p>This will:</p>
+                <ul>
+                    <li>Check for required build dependencies</li>
+                    <li>Clean previous build artifacts</li>
+                    <li>Build the Debian package using <code>dpkg-buildpackage</code> with <code>pybuild</code></li>
+                    <li>Output <code>locker_1.0.0-1_all.deb</code> in the project root</li>
+                </ul>
+
+                <h2>Running Tests</h2>
+                <pre><code># Run the full test suite
+make test
+
+# Or directly with resource warning checks
+python3 -W default::ResourceWarning -m pytest tests/ -v</code></pre>
+                <p>The test suite includes:</p>
+                <ul>
+                    <li><code>tests/test_config.py</code> &mdash; Configuration loading and validation</li>
+                    <li><code>tests/test_lock_cli.py</code> &mdash; CLI commands, logging, and argument parsing</li>
+                    <li><code>tests/test_lock_service.py</code> &mdash; Service daemon, locking/unlocking, device detection</li>
+                    <li><code>tests/test_coverage.py</code> &mdash; Additional edge cases and coverage</li>
+                </ul>
+
+                <h2>Local Development</h2>
+                <pre><code># Install in development mode
+pip install -e .
+
+# CLI and daemon are available directly
+locker --help
+lockerd --help</code></pre>
+
+                <h2>Package Structure</h2>
+                <p>The Debian package installs:</p>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Path</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>/usr/bin/locker</code></td>
+                            <td>CLI management tool (entry point)</td>
+                        </tr>
+                        <tr>
+                            <td><code>/usr/bin/lockerd</code></td>
+                            <td>Service daemon (entry point)</td>
+                        </tr>
+                        <tr>
+                            <td><code>/usr/lib/python3/dist-packages/locker/</code></td>
+                            <td>Python package source code</td>
+                        </tr>
+                        <tr>
+                            <td><code>/etc/locker/config.json</code></td>
+                            <td>Configuration file</td>
+                        </tr>
+                        <tr>
+                            <td><code>/etc/systemd/system/locker.service</code></td>
+                            <td>Systemd service unit</td>
+                        </tr>
+                        <tr>
+                            <td><code>/var/log/locker.log</code></td>
+                            <td>Audit log file (created on first start)</td>
+                        </tr>
+                        <tr>
+                            <td><code>/usr/share/locker/</code></td>
+                            <td>Documentation, scripts, and templates</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h2>Runtime Dependencies</h2>
+                <p>Automatically installed by the package:</p>
+                <ul>
+                    <li><code>python3</code> &mdash; Python 3 runtime</li>
+                    <li><code>python3-daemon</code> &mdash; Daemon process support</li>
+                    <li><code>python3-psutil</code> &mdash; Process and system utilities</li>
+                    <li><code>python3-pyudev</code> &mdash; USB device detection via udev</li>
+                    <li><code>systemd</code> &mdash; Service management</li>
+                </ul>
+
+                <h2>Project Structure</h2>
+                <div class="file-tree">locker/
+├── src/
+│   └── locker/                  <span style="color:#64748b"># Python package source</span>
+│       ├── __init__.py
+│       ├── service.py           <span style="color:#64748b"># Daemon: monitoring, locking, unlocking</span>
+│       ├── cli.py               <span style="color:#64748b"># CLI: all user-facing commands</span>
+│       ├── config.py            <span style="color:#64748b"># Configuration: load, validate, save</span>
+│       └── utils.py             <span style="color:#64748b"># Utilities: device detection, service control</span>
+├── config/
+│   ├── config.json              <span style="color:#64748b"># Default configuration template</span>
+│   ├── locker.service           <span style="color:#64748b"># Systemd service unit</span>
+│   └── connect_android_serials.json  <span style="color:#64748b"># Mock device template (for testing)</span>
+├── debian/                      <span style="color:#64748b"># Debian packaging metadata</span>
+│   ├── control                  <span style="color:#64748b"># Package metadata and dependencies</span>
+│   ├── rules                    <span style="color:#64748b"># Build rules (pybuild + custom install)</span>
+│   ├── postinst                 <span style="color:#64748b"># Post-install script (service setup)</span>
+│   └── ...
+├── tests/                       <span style="color:#64748b"># Unit tests</span>
+│   ├── test_config.py
+│   ├── test_lock_cli.py
+│   ├── test_lock_service.py
+│   └── test_coverage.py
+├── scripts/
+│   └── build-deb.sh             <span style="color:#64748b"># Build script for the .deb package</span>
+├── docs/
+│   └── documentation.html       <span style="color:#64748b"># This documentation</span>
+├── Makefile                     <span style="color:#64748b"># Build, test, install, demo targets</span>
+└── pyproject.toml               <span style="color:#64748b"># Python package config (hatchling)</span></div>
+
+                <h2>Key Design Decisions</h2>
+
+                <h3>CLI &harr; Service Communication</h3>
+                <p>The CLI and service communicate through the shared configuration file at <code>/etc/locker/config.json</code>.
+                   The CLI writes configuration changes, and the service re-reads the file on every monitoring cycle (default: every 5 seconds).
+                   There is no direct IPC between the two.</p>
+
+                <h3>Logging Architecture</h3>
+                <p>Both the service (<code>locker</code> logger) and the CLI (<code>locker.cli</code> logger) write to the same
+                   log file at <code>/var/log/locker.log</code>. The file is created with <code>666</code> permissions so
+                   both root (service) and non-root (CLI) processes can write to it. This provides a unified audit trail.</p>
+
+                <h3>Mock Device File (Connected Serials)</h3>
+                <p>The file <code>/etc/locker/connect_android_serials.json</code> simulates a connected Android device
+                   for testing and customer demos. Both the CLI and the service daemon check this file.</p>
+                <p><strong>How it works:</strong></p>
+                <ul>
+                    <li>If the file exists and contains an <code>android_serial</code> key with any non-empty string value, the device is treated as <strong>connected</strong></li>
+                    <li>If the file does not exist, no mock device is present (device is <strong>disconnected</strong>)</li>
+                    <li>The mock serial is used as a <strong>fallback</strong> everywhere &mdash; if no serial is configured via <code>set-android-serial</code>,
+                        the service and CLI will automatically use the mock file's serial. This means you can run the full demo
+                        flow (including <code>set-mode enforcing</code>) without ever calling <code>set-android-serial</code></li>
+                    <li>If a serial <em>is</em> configured via <code>set-android-serial</code>, it takes priority over the mock file's serial</li>
+                </ul>
+                <p><strong>Affected commands:</strong></p>
+                <ul>
+                    <li><code>locker list-devices</code> &mdash; shows the mock device in the list</li>
+                    <li><code>locker get-android-serial</code> &mdash; displays the mock serial (if no config serial is set)</li>
+                    <li><code>locker get-status</code> &mdash; shows the mock serial as the configured device</li>
+                    <li><code>locker set-mode enforcing</code> &mdash; allowed when the mock file provides a serial</li>
+                    <li><code>lockerd</code> (service daemon) &mdash; monitors the mock serial for connect/disconnect</li>
+                </ul>
+                <p><strong>How to create it:</strong></p>
+                <pre><code># Create the mock device file (simulates device connection)
+sudo bash -c 'echo '\''{"android_serial": "your_serial_here"}'\'' > /etc/locker/connect_android_serials.json'
+
+# Verify it appears
+locker list-devices
+locker get-android-serial
+
+# Remove it (simulates device disconnection)
+sudo rm /etc/locker/connect_android_serials.json</code></pre>
+                <p><strong>Note:</strong> This file is <em>not</em> shipped with the .deb package. It is created manually
+                   for demos and testing only.</p>
+
+                <h3>Systemd Integration</h3>
+                <p>The service runs as a <code>Type=notify</code> systemd unit. It sends <code>READY=1</code> via the
+                   <code>NOTIFY_SOCKET</code> when initialization is complete. The <code>--daemon</code> flag is not used
+                   with systemd &mdash; systemd manages the process lifecycle directly.</p>
+
+                <h2>End-to-End Demo</h2>
+                <p>A standalone demo Makefile is included (<code>Makefile.demo</code>). After installing the .deb package, run:</p>
+                <pre><code># From the project root:
+make demo
+
+# Or directly after installation, from anywhere:
+make -f /usr/share/locker/Makefile.demo</code></pre>
+                <p>The demo follows a 16-step flow:</p>
+                <ol>
+                    <li>Verify the service is running</li>
+                    <li>Check the audit log</li>
+                    <li>List devices (empty &mdash; no device connected)</li>
+                    <li>List services (ssh is pre-configured)</li>
+                    <li>Check status (permissive mode)</li>
+                    <li>Create mock device file (simulate connection)</li>
+                    <li>List devices again (mock device appears)</li>
+                    <li>Check configured serial (not yet set)</li>
+                    <li>Set the android serial to match the mock</li>
+                    <li>Check logs &mdash; service sees device as CONNECTED</li>
+                    <li>Delete mock file &mdash; logs say "would have stopped" (permissive)</li>
+                    <li>Verify ssh is still running (permissive = no enforcement)</li>
+                    <li>Switch to enforcing mode</li>
+                    <li>Verify ssh is STOPPED (enforcing + device disconnected)</li>
+                    <li>Recreate mock file (reconnect device)</li>
+                    <li>Verify ssh is RUNNING again (device connected)</li>
+                </ol>
+                <p>Each step requires ENTER to advance, and every <code>sudo</code> command asks for explicit approval.</p>
+            </div>
+        </div>
+
+        <!-- Architecture Tab -->
+        <div id="architecture" class="tab-content">
+            <div class="content">
+                <h1>Architecture</h1>
+                <p>Locker consists of two main components: a background service daemon and a command-line interface.</p>
+
+                <h2>System Overview</h2>
+                <pre><code>
+  +------------------+       +-------------------------+       +------------------+
+  |                  |       |                         |       |                  |
+  |   locker (CLI)   | ----> | /etc/locker/config.json | <---- |  lockerd (daemon)|
+  |                  |       |                         |       |                  |
+  +------------------+       +-------------------------+       +------------------+
+         |                                                            |
+         |                   +-------------------------+              |
+         +-----------------> | /var/log/locker.log     | <------------+
+                             | (unified audit log)     |
+                             +-------------------------+
+                                                                      |
+                                                               +------+------+
+                                                               |             |
+                                                        USB check    File check
+                                                               |             |
+                                                        +------+    +-------+----------+
+                                                        | udev |    | connect_android_ |
+                                                        +------+    | serials.json     |
+                                                                     +-----------------+
+</code></pre>
+
+                <h2>Service Daemon (<code>lockerd</code>)</h2>
+                <p>The daemon runs a continuous monitoring loop:</p>
+                <ol>
+                    <li><strong>Load config</strong> &mdash; Re-reads <code>/etc/locker/config.json</code> on every cycle</li>
+                    <li><strong>Check device</strong> &mdash; Looks for the configured Android serial via USB (pyudev), then falls back to checking <code>connect_android_serials.json</code></li>
+                    <li><strong>Act</strong> &mdash; If the device is connected, starts managed services. If disconnected, stops them (in enforcing mode)</li>
+                    <li><strong>Sleep</strong> &mdash; Waits <code>check_interval_seconds</code> (default: 5) before the next cycle</li>
+                </ol>
+
+                <h3>Locking &amp; Unlocking</h3>
+                <p>In <strong>enforcing</strong> mode:</p>
+                <ul>
+                    <li><strong>Device disconnected</strong> &rarr; All managed services are stopped via <code>systemctl stop</code></li>
+                    <li><strong>Device connected</strong> &rarr; All managed services are started via <code>systemctl start</code></li>
+                </ul>
+                <p>In <strong>permissive</strong> mode, the same checks run and are logged, but no services are actually started or stopped.</p>
+
+                <h3>Idempotent Operations</h3>
+                <p>The service checks the current state before acting. If a service is already stopped (during lock) or already running (during unlock), it is skipped. This prevents unnecessary systemctl calls and noisy logs.</p>
+
+                <h2>CLI (<code>locker</code>)</h2>
+                <p>The CLI is a stateless tool that reads/writes the configuration file and queries system state. It does not communicate with the daemon directly. Key behaviors:</p>
+                <ul>
+                    <li><strong>Read operations</strong> (list-services, get-android-serial, logs) do not require root</li>
+                    <li><strong>Write operations</strong> (add-service, set-mode, set-android-serial) require root to write to <code>/etc/locker/config.json</code></li>
+                    <li>All CLI operations are logged to <code>/var/log/locker.log</code> as an audit trail</li>
+                </ul>
+
+                <h2>Configuration Flow</h2>
+                <pre><code>User runs:   sudo locker add-service ssh
+                    |
+                    v
+CLI writes:  /etc/locker/config.json  (adds "ssh" to services list)
+CLI logs:    /var/log/locker.log      ("CLI: Executing command: add-service ssh")
+                    |
+                    v
+Daemon reads config on next cycle (within 5 seconds)
+                    |
+                    v
+Daemon acts: checks device, starts/stops ssh based on connection status</code></pre>
+
+                <h2>File Permissions</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>File</th>
+                            <th>Permissions</th>
+                            <th>Reason</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>/etc/locker/config.json</code></td>
+                            <td><code>644</code> (root:root)</td>
+                            <td>Readable by all, writable by root (CLI requires sudo for writes)</td>
+                        </tr>
+                        <tr>
+                            <td><code>/var/log/locker.log</code></td>
+                            <td><code>666</code> (root:root)</td>
+                            <td>Writable by all so both the root daemon and non-root CLI can log</td>
+                        </tr>
+                        <tr>
+                            <td><code>/etc/locker/connect_android_serials.json</code></td>
+                            <td><code>644</code> (root:root)</td>
+                            <td>Optional file for testing; created/removed manually</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h2>Systemd Service Unit</h2>
+                <pre><code>[Unit]
+Description=Lock-Down Service
+After=network.target
+Wants=network.target
+
+[Service]
+Type=notify
+NotifyAccess=all
+User=root
+Group=root
+ExecStart=/usr/bin/lockerd --config /etc/locker/config.json
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=locker
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/etc/locker /var/log /var/run
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+            </div>
+        </div>
+
     </div>
 
     <div class="footer">
-        <p>Lock-Down Service Documentation • Version 1.0.0</p>
+        <p>Lock-Down Service Documentation &bull; Version 1.0.0</p>
     </div>
 
     <script>
         function openTab(evt, tabName) {
-            // Hide all tab content
             const tabContents = document.getElementsByClassName('tab-content');
             for (let i = 0; i < tabContents.length; i++) {
                 tabContents[i].classList.remove('active');
             }
 
-            // Remove active class from all buttons
             const tabButtons = document.getElementsByClassName('tab-button');
             for (let i = 0; i < tabButtons.length; i++) {
                 tabButtons[i].classList.remove('active');
             }
 
-            // Show the selected tab and mark button as active
             document.getElementById(tabName).classList.add('active');
             evt.currentTarget.classList.add('active');
 
-            // Update URL hash for direct linking
             window.location.hash = tabName;
         }
 
-        // Handle direct linking via URL hash
         window.addEventListener('load', function() {
             const hash = window.location.hash.substring(1);
             if (hash) {
-                const tabButton = document.querySelector(`[onclick*="${hash}"]`);
+                const tabButton = document.querySelector('[onclick*="' + hash + '"]');
                 if (tabButton) {
                     tabButton.click();
                 }

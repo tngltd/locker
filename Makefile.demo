@@ -1,0 +1,332 @@
+# ═══════════════════════════════════════════════════════════════════
+#  Locker — Interactive End-to-End Demo
+#
+#  Run with:   make -f Makefile.demo
+#
+#  Prerequisites: the locker .deb package must be installed.
+#  Install with:  sudo apt install -y ./locker_1.0.0-1_all.deb
+# ═══════════════════════════════════════════════════════════════════
+
+.PHONY: demo
+
+MOCK_SERIAL = mockup_data_118s9Zas
+SERIALS_FILE = /etc/locker/connect_android_serials.json
+
+# ─── ANSI color codes ────────────────────────────────────────────
+RESET    := \033[0m
+BOLD     := \033[1m
+DIM      := \033[2m
+
+TEAL     := \033[96m
+RED      := \033[91m
+YELLOW   := \033[93m
+GREEN    := \033[92m
+
+# ─── Helper macros ───────────────────────────────────────────────
+
+define PAUSE
+	@printf "\n$(DIM)  ─── Press ENTER to continue ───$(RESET) " && read _pause
+endef
+
+define HEADER
+	@echo ""
+	@printf "$(BOLD)$(TEAL)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)\n"
+	@printf "$(BOLD)$(TEAL)  %s$(RESET)\n" $(1)
+	@printf "$(BOLD)$(TEAL)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)\n"
+	@echo ""
+endef
+
+define SUDO_CMD
+	@printf "\n  $(YELLOW)The following command requires elevated privileges:$(RESET)\n"
+	@printf "  $(BOLD)$(TEAL)$$ sudo $(1)$(RESET)\n"
+	@printf "  $(DIM)Press ENTER to authorize and run ───$(RESET) " && read _auth
+	@sudo $(1)
+endef
+
+# ─── Demo target ─────────────────────────────────────────────────
+
+demo:
+	@echo ""
+	@printf "$(BOLD)$(TEAL)╔══════════════════════════════════════════════════════════════╗$(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║                                                              ║$(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║              LOCKER  —  End-to-End Demo                      ║$(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║                                                              ║$(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║$(RESET)   Protect your server. Lock services when your Android     $(BOLD)$(TEAL)║$(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║$(RESET)   device is disconnected. Unlock them when it returns.     $(BOLD)$(TEAL)║$(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║                                                            ║$(RESET)\n"
+	@printf "$(BOLD)$(TEAL)╚══════════════════════════════════════════════════════════════╝$(RESET)\n"
+	@echo ""
+	@printf "  $(DIM)This demo walks through the complete Locker workflow.$(RESET)\n"
+	@printf "  $(DIM)Each step that requires sudo will ask for your approval.$(RESET)\n"
+	@printf "  $(DIM)Press ENTER at each pause to advance.$(RESET)\n"
+	$(PAUSE)
+
+	@# ═══════════════════════════════════════════════════════════════
+	@# Step 1 — Verify installation (package already installed)
+	@# ═══════════════════════════════════════════════════════════════
+	$(call HEADER,"Step 1 — Verify the Locker service is running")
+	@printf "  $(DIM)The locker package is already installed. Let's verify the$(RESET)\n"
+	@printf "  $(DIM)service daemon is running in the background.$(RESET)\n"
+	@printf "\n  $(TEAL)$$ sudo systemctl is-active locker$(RESET)\n"
+	@printf "  $(DIM)Press ENTER to run ───$(RESET) " && read _auth
+	@sudo systemctl is-active locker \
+		&& printf "  $(GREEN)✓ Service is active.$(RESET)\n" \
+		|| ( \
+			printf "  $(YELLOW)⚠ Service not running — attempting to start...$(RESET)\n" \
+			&& sudo systemctl start locker \
+			&& sleep 2 \
+			&& printf "  $(GREEN)✓ Service started.$(RESET)\n" \
+		) || ( \
+			printf "  $(RED)✗ Failed to start the locker service.$(RESET)\n" \
+			&& printf "  $(RED)  Run: sudo systemctl status locker$(RESET)\n" \
+			&& exit 1 \
+		)
+	$(PAUSE)
+
+	@# ═══════════════════════════════════════════════════════════════
+	@# Step 2 — Check the logs
+	@# ═══════════════════════════════════════════════════════════════
+	$(call HEADER,"Step 2 — Check the audit log")
+	@printf "  $(DIM)Locker logs every action to /var/log/locker.log.$(RESET)\n"
+	@printf "  $(DIM)Let's see what the service has been doing since it started.$(RESET)\n"
+	@echo ""
+	@printf "  $(TEAL)$$ locker logs$(RESET)\n"
+	@printf "  $(DIM)Press ENTER to run ───$(RESET) " && read _auth
+	@locker logs -n 20
+	@echo ""
+	@printf "  $(GREEN)✓ Logs are being written — the service is monitoring.$(RESET)\n"
+	$(PAUSE)
+
+	@# ═══════════════════════════════════════════════════════════════
+	@# Step 3 — List devices (expect empty)
+	@# ═══════════════════════════════════════════════════════════════
+	$(call HEADER,"Step 3 — List connected devices (expect: none)")
+	@printf "  $(DIM)No Android device is connected and no mock file exists.$(RESET)\n"
+	@printf "  $(DIM)The list should be empty.$(RESET)\n"
+	@echo ""
+	@printf "  $(TEAL)$$ locker list-devices$(RESET)\n"
+	@printf "  $(DIM)Press ENTER to run ───$(RESET) " && read _auth
+	@locker list-devices
+	@echo ""
+	@printf "  $(GREEN)✓ No devices — as expected.$(RESET)\n"
+	$(PAUSE)
+
+	@# ═══════════════════════════════════════════════════════════════
+	@# Step 4 — List services (expect: ssh)
+	@# ═══════════════════════════════════════════════════════════════
+	$(call HEADER,"Step 4 — List managed services (expect: ssh)")
+	@printf "  $(DIM)The default configuration ships with 'ssh' as a managed service.$(RESET)\n"
+	@printf "  $(DIM)Locker will stop/start ssh based on device connection status.$(RESET)\n"
+	@echo ""
+	@printf "  $(TEAL)$$ locker list-services$(RESET)\n"
+	@printf "  $(DIM)Press ENTER to run ───$(RESET) " && read _auth
+	@locker list-services
+	@echo ""
+	@printf "  $(GREEN)✓ ssh is configured and managed by Locker.$(RESET)\n"
+	$(PAUSE)
+
+	@# ═══════════════════════════════════════════════════════════════
+	@# Step 5 — Get status (expect: permissive)
+	@# ═══════════════════════════════════════════════════════════════
+	$(call HEADER,"Step 5 — Check current status (expect: permissive)")
+	@printf "  $(DIM)After installation, Locker starts in permissive mode.$(RESET)\n"
+	@printf "  $(DIM)It monitors but does NOT stop/start services.$(RESET)\n"
+	@echo ""
+	@printf "  $(TEAL)$$ locker get-status$(RESET)\n"
+	@printf "  $(DIM)Press ENTER to run ───$(RESET) " && read _auth
+	@locker get-status
+	@echo ""
+	@printf "  $(GREEN)✓ Mode is permissive — safe for configuration.$(RESET)\n"
+	$(PAUSE)
+
+	@# ═══════════════════════════════════════════════════════════════
+	@# Step 6 — Create the mock device file
+	@# ═══════════════════════════════════════════════════════════════
+	$(call HEADER,"Step 6 — Simulate device connection (create mock file)")
+	@printf "  $(DIM)For this demo, we simulate an Android device by creating a$(RESET)\n"
+	@printf "  $(DIM)JSON file at: $(BOLD)$(SERIALS_FILE)$(RESET)\n"
+	@printf "  $(DIM)If this file exists and contains an 'android_serial' value,$(RESET)\n"
+	@printf "  $(DIM)Locker treats it as a connected device.$(RESET)\n"
+	$(call SUDO_CMD,bash -c 'echo '"'"'{"android_serial": "$(MOCK_SERIAL)"}'"'"' > $(SERIALS_FILE)')
+	@echo ""
+	@printf "  $(GREEN)✓ Mock device file created with serial: $(BOLD)$(MOCK_SERIAL)$(RESET)\n"
+	$(PAUSE)
+
+	@# ═══════════════════════════════════════════════════════════════
+	@# Step 7 — List devices (expect: mock device)
+	@# ═══════════════════════════════════════════════════════════════
+	$(call HEADER,"Step 7 — List devices again (expect: mock device)")
+	@printf "  $(DIM)Now the mock file exists. Locker should see it as a connected device.$(RESET)\n"
+	@echo ""
+	@printf "  $(TEAL)$$ locker list-devices$(RESET)\n"
+	@printf "  $(DIM)Press ENTER to run ───$(RESET) " && read _auth
+	@locker list-devices
+	@echo ""
+	@printf "  $(GREEN)✓ The mock device appears in the device list!$(RESET)\n"
+	$(PAUSE)
+
+	@# ═══════════════════════════════════════════════════════════════
+	@# Step 8 — Get android serial (auto-detected from mock file)
+	@# ═══════════════════════════════════════════════════════════════
+	$(call HEADER,"Step 8 — Check configured serial")
+	@printf "  $(DIM)The mock file's serial is automatically detected as a fallback.$(RESET)\n"
+	@printf "  $(DIM)No explicit set-android-serial is needed when the mock file exists.$(RESET)\n"
+	@echo ""
+	@printf "  $(TEAL)$$ locker get-android-serial$(RESET)\n"
+	@printf "  $(DIM)Press ENTER to run ───$(RESET) " && read _auth
+	@locker get-android-serial
+	@echo ""
+	@printf "  $(GREEN)✓ Locker automatically picked up the mock serial.$(RESET)\n"
+	$(PAUSE)
+
+	@# ═══════════════════════════════════════════════════════════════
+	@# Step 9 — Explicitly set the android serial (optional, but shown for demo)
+	@# ═══════════════════════════════════════════════════════════════
+	$(call HEADER,"Step 9 — Explicitly configure the device serial")
+	@printf "  $(DIM)For production use, you would explicitly set the serial:$(RESET)\n"
+	@printf "  $(DIM)  $(TEAL)sudo locker set-android-serial <YOUR_SERIAL>$(RESET)\n"
+	@printf "  $(DIM)This is optional when a mock file exists (the mock serial$(RESET)\n"
+	@printf "  $(DIM)is used as a fallback). Let's set it explicitly anyway.$(RESET)\n"
+	$(call SUDO_CMD,locker set-android-serial $(MOCK_SERIAL))
+	@echo ""
+	@printf "  $(GREEN)✓ Serial configured explicitly in config.$(RESET)\n"
+	$(PAUSE)
+
+	@# ═══════════════════════════════════════════════════════════════
+	@# Step 10 — Check logs (device should be seen as CONNECTED)
+	@# ═══════════════════════════════════════════════════════════════
+	$(call HEADER,"Step 10 — Verify the service sees the device as CONNECTED")
+	@printf "  $(DIM)The mock file exists and the serial is configured.$(RESET)\n"
+	@printf "  $(DIM)Let's wait a few seconds for the service to pick it up,$(RESET)\n"
+	@printf "  $(DIM)then check the logs.$(RESET)\n"
+	@echo ""
+	@printf "  $(YELLOW)Waiting for the service to detect the device...$(RESET)\n"
+	@sleep 7
+	@printf "  $(TEAL)$$ locker logs -n 15$(RESET)\n"
+	@printf "  $(DIM)Press ENTER to run ───$(RESET) " && read _auth
+	@locker logs -n 15
+	@echo ""
+	@printf "  $(GREEN)✓ The service sees the device as CONNECTED.$(RESET)\n"
+	$(PAUSE)
+
+	@# ═══════════════════════════════════════════════════════════════
+	@# Step 11 — Remove mock file (device disconnected in permissive)
+	@# ═══════════════════════════════════════════════════════════════
+	$(call HEADER,"Step 11 — Disconnect device (permissive mode)")
+	@printf "  $(DIM)We'll remove the mock file to simulate disconnection.$(RESET)\n"
+	@printf "  $(DIM)Since we're still in permissive mode, the logs should say$(RESET)\n"
+	@printf "  $(DIM)'would have stopped' but NOT actually stop ssh.$(RESET)\n"
+	$(call SUDO_CMD,rm -f $(SERIALS_FILE))
+	@echo ""
+	@printf "  $(YELLOW)Waiting for the service to detect the disconnection...$(RESET)\n"
+	@sleep 7
+	@printf "  $(TEAL)$$ locker logs -n 15$(RESET)\n"
+	@printf "  $(DIM)Press ENTER to run ───$(RESET) " && read _auth
+	@locker logs -n 15
+	@echo ""
+	@printf "  $(GREEN)✓ Logs say 'would have stopped' — permissive mode, no action taken.$(RESET)\n"
+	$(PAUSE)
+
+	@# ═══════════════════════════════════════════════════════════════
+	@# Step 12 — Check ssh status (should still be running)
+	@# ═══════════════════════════════════════════════════════════════
+	$(call HEADER,"Step 12 — Verify ssh is still running (permissive mode)")
+	@printf "  $(DIM)Even though the device is disconnected, ssh should still$(RESET)\n"
+	@printf "  $(DIM)be running because we're in permissive mode.$(RESET)\n"
+	@echo ""
+	@printf "  $(TEAL)$$ systemctl is-active ssh$(RESET)\n"
+	@printf "  $(DIM)Press ENTER to run ───$(RESET) " && read _auth
+	@systemctl is-active ssh && printf "  $(GREEN)→ ssh: active ✓$(RESET)\n" || printf "  $(RED)→ ssh: inactive (unexpected!)$(RESET)\n"
+	@echo ""
+	@printf "  $(GREEN)✓ ssh is still running — permissive mode did not stop it.$(RESET)\n"
+	$(PAUSE)
+
+	@# ═══════════════════════════════════════════════════════════════
+	@# Step 13 — Switch to enforcing mode
+	@# ═══════════════════════════════════════════════════════════════
+	$(call HEADER,"Step 13 — Switch to ENFORCING mode")
+	@printf "  $(DIM)Now let's activate enforcement. With the device disconnected,$(RESET)\n"
+	@printf "  $(DIM)Locker will actively stop ssh.$(RESET)\n"
+	$(call SUDO_CMD,locker set-mode enforcing)
+	@echo ""
+	@printf "  $(GREEN)✓ Enforcing mode active.$(RESET)\n"
+	$(PAUSE)
+
+	@# ═══════════════════════════════════════════════════════════════
+	@# Step 14 — Verify ssh is down
+	@# ═══════════════════════════════════════════════════════════════
+	$(call HEADER,"Step 14 — Verify ssh is STOPPED (enforcing, device disconnected)")
+	@printf "  $(DIM)The device is disconnected and we're in enforcing mode.$(RESET)\n"
+	@printf "  $(DIM)Locker should have stopped ssh by now.$(RESET)\n"
+	@echo ""
+	@printf "  $(YELLOW)Waiting for the service to enforce...$(RESET)\n"
+	@sleep 7
+	@printf "  $(TEAL)$$ systemctl is-active ssh$(RESET)\n"
+	@printf "  $(DIM)Press ENTER to run ───$(RESET) " && read _auth
+	@systemctl is-active ssh && printf "  $(RED)→ ssh: active (Locker should have stopped it!)$(RESET)\n" || printf "  $(GREEN)→ ssh: inactive ✓$(RESET)\n"
+	@echo ""
+	@printf "  $(TEAL)$$ locker list-services$(RESET)\n"
+	@locker list-services
+	@echo ""
+	@printf "  $(GREEN)✓ ssh has been STOPPED by Locker. The system is locked down.$(RESET)\n"
+	$(PAUSE)
+
+	@# ═══════════════════════════════════════════════════════════════
+	@# Step 15 — Reconnect device (recreate mock file)
+	@# ═══════════════════════════════════════════════════════════════
+	$(call HEADER,"Step 15 — Reconnect the device")
+	@printf "  $(DIM)The authorized user plugs the Android device back in.$(RESET)\n"
+	@printf "  $(DIM)(We re-create the mock file.)$(RESET)\n"
+	$(call SUDO_CMD,bash -c 'echo '"'"'{"android_serial": "$(MOCK_SERIAL)"}'"'"' > $(SERIALS_FILE)')
+	@echo ""
+	@printf "  $(GREEN)✓ Device reconnected.$(RESET)\n"
+	$(PAUSE)
+
+	@# ═══════════════════════════════════════════════════════════════
+	@# Step 16 — Verify ssh is back up
+	@# ═══════════════════════════════════════════════════════════════
+	$(call HEADER,"Step 16 — Verify ssh is RUNNING again")
+	@printf "  $(DIM)The device is connected again. Locker should automatically$(RESET)\n"
+	@printf "  $(DIM)start ssh back up.$(RESET)\n"
+	@echo ""
+	@printf "  $(YELLOW)Waiting for the service to detect the reconnection...$(RESET)\n"
+	@sleep 7
+	@printf "  $(TEAL)$$ systemctl is-active ssh$(RESET)\n"
+	@printf "  $(DIM)Press ENTER to run ───$(RESET) " && read _auth
+	@systemctl is-active ssh && printf "  $(GREEN)→ ssh: active ✓$(RESET)\n" || printf "  $(RED)→ ssh: inactive (unexpected!)$(RESET)\n"
+	@echo ""
+	@printf "  $(TEAL)$$ locker list-services$(RESET)\n"
+	@locker list-services
+	@echo ""
+	@printf "  $(TEAL)$$ locker logs -n 10$(RESET)\n"
+	@locker logs -n 10
+	@echo ""
+	@printf "  $(GREEN)✓ ssh is back RUNNING. Locker automatically unlocked the system.$(RESET)\n"
+	$(PAUSE)
+
+	@# ═══════════════════════════════════════════════════════════════
+	@# Cleanup
+	@# ═══════════════════════════════════════════════════════════════
+	$(call HEADER,"Cleanup — Restoring safe state")
+	$(call SUDO_CMD,locker set-mode permissive)
+	$(call SUDO_CMD,systemctl start ssh)
+	$(call SUDO_CMD,rm -f $(SERIALS_FILE))
+	@echo ""
+	@printf "  $(GREEN)✓ System restored to safe state.$(RESET)\n"
+	@echo ""
+	@printf "$(BOLD)$(TEAL)╔══════════════════════════════════════════════════════════════╗$(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║                                                              ║$(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║                    Demo Complete!                            ║$(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║                                                              ║$(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║$(RESET)  Locker continuously monitors your Android device and        $(BOLD)$(TEAL)║$(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║$(RESET)  enforces service lockdowns in real time. No one can         $(BOLD)$(TEAL)║$(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║$(RESET)  restart protected services without the physical device.     $(BOLD)$(TEAL)║$(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║                                                              ║$(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║$(RESET)  $(TEAL)locker add-service <name>$(RESET)   — protect a service            $(BOLD)$(TEAL)║$(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║$(RESET)  $(TEAL)locker set-mode enforcing$(RESET)   — activate enforcement         $(BOLD)$(TEAL)║$(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║$(RESET)  $(TEAL)locker list-services$(RESET)        — see managed services         $(BOLD)$(TEAL)║$(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║$(RESET)  $(TEAL)locker get-status$(RESET)           — view current status          $(BOLD)$(TEAL)║$(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║$(RESET)  $(TEAL)locker logs -f$(RESET)              — follow the audit log         $(BOLD)$(TEAL)║$(RESET)\n"
+	@printf "$(BOLD)$(TEAL)║                                                              ║$(RESET)\n"
+	@printf "$(BOLD)$(TEAL)╚══════════════════════════════════════════════════════════════╝$(RESET)\n"
+	@echo ""

@@ -1,42 +1,48 @@
 # Running Tests on macOS
 
-## Linux-Specific Commands
+## Linux-Specific Dependencies
 
-The locker service uses Linux-specific commands that are **not available on macOS**:
-- `systemctl` - Linux systemd service manager (macOS uses `launchctl`)
-- `ip link` - Linux network interface management (macOS uses `ifconfig`)
+Locker uses Linux-specific commands and libraries:
+
+- `systemctl` — Linux systemd service manager (macOS uses `launchctl`)
+- `pyudev` — Linux udev device detection (no macOS equivalent)
+- `python-daemon` — Daemon context manager (Linux-specific)
 
 ## Test Compatibility
 
-**Good news**: Most tests use `@patch('subprocess.run')` to mock these commands, so they should work on macOS.
+Most tests use `@patch` to mock these dependencies, so they should work on macOS.
 
-However, some tests have issues:
+### Tests That Should Work on macOS (with mocks)
 
-### Tests That Should Work on macOS (with mocks):
-- ✅ `test_config.py` - All tests mock dependencies
-- ✅ Most tests in `test_lock_service.py` - Mock subprocess.run
-- ✅ Most tests in `test_lockdown.py` - Mock subprocess.run
-- ✅ Most tests in `test_lock_cli.py` - Mock subprocess.run
+- `test_config.py` — All tests mock file I/O; no system dependencies
+- `test_lock_cli.py` — Mocks `subprocess.run`, `input`, config loading
+- `test_lock_service.py` — Mocks `subprocess.run`, `pyudev.Context`, daemon context
+- `test_coverage.py` — Additional edge-case coverage using mocks
 
-### Tests That May Fail on macOS:
-1. **Tests checking for `is_locked` attribute** - This attribute doesn't exist in the current implementation (it's stateless)
-2. **Tests checking for `systemctl disable/enable`** - Implementation only uses `stop/start`, not `disable/enable`
-3. **Tests checking idempotent behavior** - Implementation is stateless, so idempotent checks don't apply
-4. **Tests using `daemon` module** - Need to mock this module
+### Tests That May Require Attention on macOS
 
-### Running Tests
+1. **Tests using `pyudev`** — Requires the `pyudev` package to be importable even if mocked. Install with `pip install pyudev` (may fail on macOS since it depends on libudev)
+2. **Tests using `daemon` module** — Requires `python-daemon` to be importable. Install with `pip install python-daemon`
+3. **Tests checking `systemctl` output** — All mocked, but ensure mocks return realistic output
 
-To run tests on macOS, ensure all subprocess calls are properly mocked. The tests should work as long as:
-1. All `subprocess.run` calls are mocked
-2. Tests don't check for attributes that don't exist (`is_locked`)
-3. Tests match the actual implementation behavior
+## Running Tests
 
-### Quick Test
-
-Run just the config tests (which are fully mocked):
 ```bash
-python3 -m unittest tests.test_config -v
+# Run all tests
+python3 -W default::ResourceWarning -m pytest tests/ -v
+
+# Run only config tests (fully mocked, always safe)
+python3 -m pytest tests/test_config.py -v
+
+# Run only CLI tests
+python3 -m pytest tests/test_lock_cli.py -v
 ```
 
-These should all pass on macOS.
+## Test Suite Overview
 
+| Test File | Tests | What It Covers |
+|-----------|-------|---------------|
+| `test_config.py` | Config loading, validation, saving | JSON config file operations |
+| `test_lock_cli.py` | CLI commands, audit logging | All `locker` CLI commands including `list-services`, `remove-service`, `logs -f` |
+| `test_lock_service.py` | Daemon service, locking, unlocking | Service monitoring loop, device detection, connected serials file |
+| `test_coverage.py` | Edge cases | Error handling, permission issues, fallback paths |

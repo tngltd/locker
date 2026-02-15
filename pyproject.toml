@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "locker"
 version = "1.0.0"
-description = "A security service for Ubuntu systems to lock down devices when lost/stolen"
+description = "Android-based service lockdown for Ubuntu — stop services when your device is disconnected"
 requires-python = ">=3.6"
 license = {text = "MIT"}
 authors = [

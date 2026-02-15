@@ -4,10 +4,11 @@ After=network.target
 Wants=network.target
 
 [Service]
-Type=simple
+Type=notify
+NotifyAccess=all
 User=root
 Group=root
-ExecStart=/usr/bin/lockerd --config /etc/locker/config.json --daemon
+ExecStart=/usr/bin/lockerd --config /etc/locker/config.json
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=5

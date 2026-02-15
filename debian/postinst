@@ -3,11 +3,14 @@ set -e
 
 # Post-installation script for locker
 
+# Ensure configuration directory exists with proper permissions
+CONFIG_DIR="/etc/locker"
+CONFIG_FILE="$CONFIG_DIR/config.json"
+mkdir -p "$CONFIG_DIR"
+
 # Ensure configuration file exists
-CONFIG_FILE="/etc/locker/config.json"
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "Creating default configuration file at $CONFIG_FILE"
-    mkdir -p /etc/locker
     
     # Copy from package-installed template
     PACKAGE_CONFIG="/usr/share/locker/config.json"
@@ -21,6 +24,20 @@ if [ ! -f "$CONFIG_FILE" ]; then
     fi
 fi
 
+# Check lockerd executable exists; if not, report an error to diagnose packaging/build issue
+if [ ! -f /usr/bin/lockerd ]; then
+    echo "ERROR: /usr/bin/lockerd not found after installation." >&2
+    echo "This indicates a packaging or build problem. Please check your package installation." >&2
+    exit 1
+fi
+
+# Verify locker executable exists
+if [ ! -f /usr/bin/locker ]; then
+    echo "ERROR: /usr/bin/locker not found after installation." >&2
+    echo "This indicates a packaging or build problem. Please check your package installation." >&2
+    exit 1
+fi
+
 # Reload systemd (only if systemd is running)
 if command -v systemctl >/dev/null 2>&1; then
     # Check if systemd is actually running
@@ -28,16 +45,31 @@ if command -v systemctl >/dev/null 2>&1; then
         systemctl daemon-reload
         
         # Enable and start the service
-        systemctl enable locker || true
-        systemctl start locker || true
+        if systemctl enable locker; then
+            echo "Service enabled successfully."
+        else
+            echo "Warning: Failed to enable service."
+        fi
+        
+        # systemctl start waits for the start job to complete (no sleep needed)
+        if systemctl start locker; then
+            echo "Service started successfully."
+        else
+            echo "Warning: Failed to start service. Check logs with: systemctl status locker" >&2
+            systemctl status locker --no-pager -l 2>&1 || true
+        fi
     elif [ -d /run/systemd/system ]; then
-        # Systemd is installed but not running (e.g., in Docker)
-        # Try to enable it anyway (will be started on next boot or when systemd starts)
+        # Systemd is installed but is-system-running may have failed (e.g. container, init)
+        # Enable and try to start anyway so the service runs when possible
         systemctl daemon-reload 2>/dev/null || true
         systemctl enable locker 2>/dev/null || true
-        echo "Note: Systemd is not running. Service will start when systemd is available."
-        echo "To start manually: systemctl start locker"
-        echo "Or run directly: lockerd"
+        if systemctl start locker 2>/dev/null; then
+            echo "Service started successfully."
+        else
+            echo "Note: Service enabled but could not start now (e.g. systemd not fully running)."
+            echo "To start manually: systemctl start locker"
+            echo "Or run directly: lockerd"
+        fi
     else
         echo "Note: Systemd not available. Service must be started manually."
         echo "To start: lockerd"
@@ -47,15 +79,25 @@ else
     echo "To start: lockerd"
 fi
 
+# If systemctl is available and service is enabled but not active, try start once (e.g. after install on a running system)
+if command -v systemctl >/dev/null 2>&1; then
+    if systemctl is-enabled locker >/dev/null 2>&1 && ! systemctl is-active --quiet locker 2>/dev/null; then
+        if systemctl start locker 2>/dev/null; then
+            echo "Service started successfully."
+        fi
+    fi
+fi
+
 # Ensure log directory exists and create log file with proper permissions
+# Permissions 666 so both the root service (lockerd) and non-root CLI (locker) can write
 LOG_FILE="/var/log/locker.log"
 if [ ! -f "$LOG_FILE" ]; then
     echo "Creating log file at $LOG_FILE"
     touch "$LOG_FILE"
-    chmod 644 "$LOG_FILE"
-    chown root:root "$LOG_FILE"
-    echo "Log file created."
 fi
+chmod 666 "$LOG_FILE"
+chown root:root "$LOG_FILE"
+echo "Log file created with write access for CLI and service."
 
 # Create log rotation configuration
 cat > /etc/logrotate.d/locker << 'EOF'
@@ -66,7 +108,7 @@ cat > /etc/logrotate.d/locker << 'EOF'
     compress
     delaycompress
     notifempty
-    create 644 root root
+    create 666 root root
     postrotate
         systemctl reload locker > /dev/null 2>&1 || true
     endscript
@@ -84,10 +126,8 @@ else
     echo "  - Directly: lockerd"
 fi
 echo "Next steps:"
-echo "  1. Run 'locker setup' for interactive initial configuration"
-echo "     Or manually:"
-echo "     - Run 'locker list-devices' to see connected devices"
-echo "     - Run 'locker set-android-serial' to configure an Android device"
+echo "  1. Run 'locker set-android-serial' to configure an Android device"
+echo "     (or 'locker list-devices' to see connected devices first)"
 echo "  2. Run 'locker add-service <service>' to configure services to manage"
 echo "  3. Run 'locker set-mode enforcing' to enable locking"
 if command -v systemctl >/dev/null 2>&1; then

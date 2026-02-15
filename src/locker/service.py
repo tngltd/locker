@@ -5,6 +5,7 @@ A security service for Ubuntu systems to lock down devices when the configured A
 """
 
 import os
+import socket
 import time
 import signal
 import logging
@@ -15,6 +16,29 @@ from typing import Optional
 import argparse
 from locker import utils
 from locker import config
+
+# Re-export from utils for backward compatibility
+CONNECTED_SERIALS_FILE = utils.CONNECTED_SERIALS_FILE
+
+
+def _notify_systemd_ready() -> bool:
+    """Notify systemd that the service is ready (for Type=notify). Returns True if notified."""
+    sock_path = os.environ.get('NOTIFY_SOCKET')
+    if not sock_path:
+        return False
+    # Abstract socket: @path -> bytes with leading null for AF_UNIX
+    if sock_path.startswith('@'):
+        addr = b'\0' + sock_path[1:].encode('utf-8')
+    elif sock_path.startswith('/'):
+        addr = sock_path
+    else:
+        return False
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as sock:
+            sock.sendto(b'READY=1\n', addr)
+        return True
+    except (OSError, ValueError):
+        return False
 
 
 class LockService:
@@ -47,8 +71,7 @@ class LockService:
         if android_serial:
             self.logger.info(f"Lock Service initialized. Configured Android serial: {android_serial}")
         else:
-            self.logger.warning("Lock Service initialized. No Android device configured - run \"locker setup\" first")
-    
+            self.logger.warning("Lock Service initialized. No Android device configured - run \"locker set-android-serial\" first")
     
     def setup_logging(self):
         """Setup logging configuration"""
@@ -87,6 +110,13 @@ class LockService:
             file_handler.setLevel(logging.DEBUG)  # Verbose logging to file
             file_handler.setFormatter(formatter)
             self.logger.addHandler(file_handler)
+            
+            # Ensure log file is writable by CLI (non-root) users too
+            try:
+                os.chmod(log_file_path, 0o666)
+            except OSError:
+                pass  # Best effort; may fail if not owner
+            
             # Log successful file handler setup
             self.logger.info(f"Logging to file: {log_file_path}")
         except (OSError, PermissionError) as e:
@@ -129,17 +159,22 @@ class LockService:
         mode_str = "enforcing" if enforcing else "permissive"
         self.logger.info(f"Locking system (mode: {mode_str})...")
         
+        if not services:
+            self.logger.info("No services configured to lock")
+            return
+        
         for service in services:
             is_running = utils.is_service_running(service, logger=self.logger)
             
             if not is_running:
+                self.logger.info(f"Service {service} is already stopped - skipping")
                 continue
 
-            self.logger.info(f"Service {service} is running - {'would be' if not enforcing else ''} stopping it ({mode_str})")
-            
             if not enforcing:
+                self.logger.info(f"Service {service} is running — would have stopped it (permissive mode, no action taken)")
                 continue
 
+            self.logger.info(f"Service {service} is running — stopping it (enforcing mode)")
             utils.stop_service(service, logger=self.logger)
     
         self.logger.info(f"System locked successfully (mode: {mode_str})")
@@ -154,38 +189,60 @@ class LockService:
         mode_str = "enforcing" if enforcing else "permissive"
         self.logger.info(f"Unlocking system (mode: {mode_str})...")
         
+        if not services:
+            self.logger.info("No services configured to unlock")
+            return
+        
         for service in services:
             is_running = utils.is_service_running(service, logger=self.logger)
             
             if is_running:
+                self.logger.info(f"Service {service} is already running - skipping")
                 continue
 
-            self.logger.info(f"Service {service} is not running - {'would be' if not enforcing else ''} starting it ({mode_str})")
-            
             if not enforcing:
+                self.logger.info(f"Service {service} is not running — would have started it (permissive mode, no action taken)")
                 continue
 
+            self.logger.info(f"Service {service} is not running — starting it (enforcing mode)")
             utils.start_service(service, logger=self.logger)
     
         self.logger.info(f"System unlocked successfully (mode: {mode_str})")
     
+    def get_effective_serial(self) -> Optional[str]:
+        """Get the effective Android serial — config first, then mock device file.
+        
+        Returns:
+            The serial string, or None if neither source has a serial.
+        """
+        serial = self.config.get('android_serial')
+        if serial:
+            return serial
+        
+        # Fall back to mock device file
+        mock_device = utils.get_mock_device(config_dir=self.config_dir, logger=self.logger)
+        if mock_device:
+            return mock_device[0]
+        
+        return None
     
     def is_configured_device_connected(self) -> bool:
-        """Check if the configured Android device is connected"""
-        android_serial = self.config['android_serial']
+        """Check if the configured Android device is connected.
+        
+        Uses utils.get_connected_devices() which checks both real USB devices
+        and the mock device file (connect_android_serials.json). If the effective
+        serial (from config or mock file) appears in the list of connected devices,
+        the device is considered connected.
+        """
+        android_serial = self.get_effective_serial()
         if not android_serial:
             return False
         
-        devices = utils.get_connected_devices(logger=self.logger)
+        # get_connected_devices now includes mock devices from the file
+        devices = utils.get_connected_devices(logger=self.logger, config_dir=self.config_dir)
         connected_serials = [d[0] for d in devices]
-        is_connected = android_serial in connected_serials
         
-        if is_connected:
-            self.logger.info(f"Android device {android_serial} is connected")
-        else:
-            self.logger.info(f"Android device {android_serial} is NOT connected")
-        
-        return is_connected
+        return android_serial in connected_serials
     
     def signal_handler(self, signum, frame):
         """Handle shutdown signals"""
@@ -206,29 +263,34 @@ class LockService:
             config.validate_config(self.config)
         
         # Extract config values
-        android_serial = self.config['android_serial']
         mode = self.config['mode']
         services = self.config['services']
         enforcing = (mode == 'enforcing')
         
+        # Get effective serial (config takes priority, then mock file)
+        android_serial = self.get_effective_serial()
+        
         self.logger.info("Monitor loop iteration started")
         try:
-            # Phase 2: Get android_serial from config and check if device is connected
+            # Phase 2: Check if device is connected using effective serial
             is_connected = False
             if android_serial and len(android_serial) > 0:
-                self.logger.info(f"Android device configured: {android_serial}")
+                source = "config" if self.config.get('android_serial') else "mock device file"
+                self.logger.info(f"Android device configured: {android_serial} (source: {source})")
                 is_connected = self.is_configured_device_connected()
-                device_status = "CONNECTED" if is_connected else "DISCONNECTED"
-                self.logger.info(f"Device {android_serial} connection status: {device_status}")
+                if is_connected:
+                    self.logger.info(f">>> Device {android_serial} is CONNECTED <<<")
+                else:
+                    self.logger.warning(f">>> Device {android_serial} is DISCONNECTED <<<")
             else:
                 self.logger.info("No Android device configured")
             
             # Phase 3: If connected, unlock - otherwise lock. Pass enforcing bool.
             if is_connected:
-                self.logger.info(f"Device connected - unlocking system (mode: {mode})")
+                self.logger.info(f"Device CONNECTED — unlocking system (mode: {mode})")
                 self.unlock_system(services, enforcing)
             else:
-                self.logger.info(f"Device disconnected - locking system (mode: {mode})")
+                self.logger.info(f"Device DISCONNECTED — locking system (mode: {mode})")
                 self.lock_system(services, enforcing)
             
         except Exception as e:
@@ -244,6 +306,9 @@ class LockService:
         # Log configuration on startup
         self.log_config()
         
+        # Notify systemd we are ready (when Type=notify)
+        _notify_systemd_ready()
+        
         while self.running:
             try:
                 self.run_once()
@@ -251,6 +316,7 @@ class LockService:
                 self.logger.info(f"Sleeping for {check_interval} seconds before next check")
                 time.sleep(check_interval)
             except KeyboardInterrupt:
+                self.running = False
                 break
             except Exception as e:
                 self.logger.error(f"Error in main loop: {e}")
@@ -308,8 +374,15 @@ def main():
         service.log_config()
         service.run_once()
     elif args.daemon:
-        # Run as daemon
-        with daemon.DaemonContext():
+        # Run as daemon - preserve log file handlers so logging continues
+        files_to_preserve = []
+        for handler in service.logger.handlers:
+            if hasattr(handler, 'stream') and hasattr(handler.stream, 'fileno'):
+                try:
+                    files_to_preserve.append(handler.stream)
+                except Exception:
+                    pass
+        with daemon.DaemonContext(files_preserve=files_to_preserve):
             service.run()
     else:
         service.run()

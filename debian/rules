@@ -29,6 +29,8 @@ override_dh_auto_install:
 	if [ -f $(CURDIR)/config/config.json ]; then \
 		install -m 644 $(CURDIR)/config/config.json $(CURDIR)/debian/locker/usr/share/locker/config.json; \
 	fi
+	# Note: connect_android_serials.json is NOT shipped with the package.
+	# It is created manually for demos/testing (see Makefile.demo and documentation).
 	
 	# Install active config to /etc/locker/ (will be created by postinst if needed)
 	install -d $(CURDIR)/debian/locker/etc/locker
@@ -45,6 +47,9 @@ override_dh_auto_install:
 	install -d $(CURDIR)/debian/locker/usr/share/locker/docs
 	install -m 644 $(CURDIR)/docs/documentation.html $(CURDIR)/debian/locker/usr/share/locker/docs/ 2>/dev/null || true
 	
+	# Install demo Makefile (for customer demos after installation)
+	install -m 644 $(CURDIR)/Makefile.demo $(CURDIR)/debian/locker/usr/share/locker/ 2>/dev/null || true
+	
 	# Install scripts (if they exist)
 	install -d $(CURDIR)/debian/locker/usr/share/locker/scripts
 	[ -f $(CURDIR)/scripts/install.sh ] && install -m 755 $(CURDIR)/scripts/install.sh $(CURDIR)/debian/locker/usr/share/locker/scripts/ || true
@@ -56,6 +61,7 @@ override_dh_installdocs:
 	:
 
 override_dh_python3:
-	# Let dh_python3 handle the Python package installation
-	# It will use pyproject.toml to install the package with entry points
-	dh_python3
+	# pybuild already handles Python package installation via pyproject.toml
+	# dh_python3 is not needed since we're using pybuild with pyproject.toml
+	# Entry points are installed by pybuild during dh_auto_install
+	:
